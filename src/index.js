@@ -16,6 +16,23 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+window.service_script_api_promise = (() => {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    promise.resolve = resolve;
+    promise.reject = reject;
+    return promise;
+})();
+window.service_script = async fn => {
+    try {
+        await fn(await window.service_script_api_promise);
+    } catch (e) {
+        console.error('service_script(ERROR)', e);
+    }
+};
 
 window.puter_gui_enabled = true;
 /**
@@ -55,22 +72,22 @@ window.gui = async function(options){
 
     // DEV: Load the initgui.js file if we are in development mode
     if(!window.gui_env || window.gui_env === "dev"){
-        await loadScript('/sdk/puter.dev.js');
-        await loadScript('/initgui.js', {isModule: true});
+        await window.loadScript('/sdk/puter.dev.js');
+        await window.loadScript(`${options.asset_dir}/initgui.js`, {isModule: true});
     }
     
     // PROD: load the minified bundles if we are in production mode
     // note: the order of the bundles is important
     // note: Build script will prepend `window.gui_env="prod"` to the top of the file
-    else if(gui_env === "prod"){
-        await loadScript('https://js.puter.com/v2/');
+    else if(window.gui_env === "prod"){
+        await window.loadScript('https://js.puter.com/v2/');
         // Load the minified bundles
-        await loadCSS('/dist/bundle.min.css');
-        await loadScript('/dist/bundle.min.js');
+        await window.loadCSS('/dist/bundle.min.css');
+        await window.loadScript('/dist/bundle.min.js');
     }
 
     // 🚀 Launch the GUI 🚀
-    initgui();
+    window.initgui();
 }
 
 /**
@@ -141,8 +158,8 @@ window.loadCSS = async function(url) {
         document.head.appendChild(link);
     });
 }
-console.log( "%c⚠️Warning⚠️\n %cPlease refrain from adding or pasting any sort of code here, as doing so could potentially compromise your account. \nYou don't get what you intended anyway, but the hacker will !! \n\n%cfor further information please visit https://developer.chrome.com/blog/self-xss",
-    "color:red; font-size:2rem;margin-left:40%;font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
+console.log( "%c⚠️Warning⚠️\n%cPlease refrain from adding or pasting any sort of code here, as doing so could potentially compromise your account. \nYou don't get what you intended anyway, but the hacker will! \n\n%cFor further information please visit https://developer.chrome.com/blog/self-xss",
+    "color:red; font-size:2rem; display:block; margin-left:0; margin-bottom: 20px; background: black; width: 100%; margin-top:20px; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
     "font-size:1rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
-    "font-size:0.9rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;"
+    "font-size:0.9rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
 );

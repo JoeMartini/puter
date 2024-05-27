@@ -42,6 +42,23 @@ class WebServerService extends BaseService {
         morgan: require('morgan'),
     };
 
+    async ['__on_boot.consolidation'] () {
+        const app = this.app;
+        const services = this.services;
+        await services.emit('install.middlewares.context-aware', { app });
+        await services.emit('install.routes', {
+            app,
+            router_webhooks: this.router_webhooks,
+        });
+        await services.emit('install.routes-gui', { app });
+    }
+
+    async ['__on_boot.activation'] () {
+        const services = this.services;
+        await services.emit('start.webserver');
+        await services.emit('ready.webserver');
+    }
+
     async ['__on_start.webserver'] () {
         await es_import_promise;
 
@@ -109,7 +126,7 @@ class WebServerService extends BaseService {
         ports_to_try = null; // GC
 
         const url = config.origin;
-        
+
         this.startup_widget = () => {
             const link = `\x1B[34;1m${osclink(url)}\x1B[0m`;
             const lines = [
@@ -144,7 +161,7 @@ class WebServerService extends BaseService {
 
         // Socket.io middleware for authentication
         socketio.use(async (socket, next) => {
-            if (socket.handshake.query.auth_token) {
+            if (socket.handshake.auth.auth_token) {
                 try {
                     let auth_res = await jwt_auth(socket);
                     // successful auth
@@ -154,7 +171,7 @@ class WebServerService extends BaseService {
                     socket.join(socket.user.id);
                     next();
                 } catch (e) {
-                    console.log('socket auth err');
+                    console.log('socket auth err', e);
                 }
             }
         });
@@ -255,7 +272,7 @@ class WebServerService extends BaseService {
                 onFinished(res, () => {
                     if ( res.statusCode !== 500 ) return;
                     if ( req.__error_handled ) return;
-                    const alarm = services.get('alarm');
+                    const alarm = this.services.get('alarm');
                     alarm.create('responded-500', 'server sent a 500 response', {
                         error: req.__error_source,
                         url: req.url,
@@ -282,6 +299,34 @@ class WebServerService extends BaseService {
 
             return next();
         });
+
+        // Validate host header against allowed domains to prevent host header injection
+        // https://www.owasp.org/index.php/Host_Header_Injection
+        app.use((req, res, next)=>{
+            const allowedDomains = [config.domain.toLowerCase(), config.static_hosting_domain.toLowerCase()];
+
+            // Retrieve the Host header and ensure it's in a valid format
+            const hostHeader = req.headers.host;
+
+            if (!hostHeader) {
+                return res.status(400).send('Missing Host header.');
+            }
+
+            // Parse the Host header to isolate the hostname (strip out port if present)
+            const hostName = hostHeader.split(':')[0].trim().toLowerCase();
+
+            // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
+            if (allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith('.' + allowedDomain))) {
+                next(); // Proceed if the host is valid
+            } else {
+                return res.status(400).send('Invalid Host header.');
+            }
+        })
+
+        // Web hooks need a router that occurs before JSON parse middleware
+        // so that signatures of the raw JSON can be verified
+        this.router_webhooks = express.Router();
+        app.use(this.router_webhooks);
 
         app.use(express.json({limit: '50mb'}));
 
@@ -314,7 +359,6 @@ class WebServerService extends BaseService {
                 req.subdomains[req.subdomains.length-1] === 'api'
             ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
-                res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
 
             // Request methods to allow
@@ -336,6 +380,13 @@ class WebServerService extends BaseService {
             // res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
             res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
             // Pass to next layer of middleware
+
+            // disable iframes on the main domain
+            if ( req.hostname === config.domain ) {
+                // disable iframes
+                res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+            }
+
             next();
         });
 

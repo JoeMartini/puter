@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require("../../../util/context");
 const APIError = require("../../../api/APIError");
 const { AppUnderUserActorType, Actor, UserActorType } = require("../../auth/Actor");
@@ -60,6 +60,7 @@ class BaseImplementation extends AdvancedBase {
 
     async _sla_enforcement (method) {
         const context = Context.get();
+        const services = context.get('services');
         const method_key = `${this.constructor.ID}:${method}`;
         const svc_sla = services.get('sla');
 

@@ -42,7 +42,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 5;
+        const TARGET_VERSION = 7;
 
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
@@ -54,6 +54,8 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0005_background-apps.sql',
                 '0006_update-apps.sql',
                 '0007_sessions.sql',
+                '0008_otp.sql',
+                '0009_app-prefix-fix.sql',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
@@ -88,6 +90,14 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         if ( user_version <= 4 ) {
             upgrade_files.push('0007_sessions.sql');
+        }
+
+        if ( user_version <= 5 ) {
+            upgrade_files.push('0008_otp.sql');
+        }
+
+        if ( user_version <= 6 ) {
+            upgrade_files.push('0009_app-prefix-fix.sql');
         }
 
         if ( upgrade_files.length > 0 ) {
@@ -126,6 +136,17 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 svc_devConsole.add_widget(this.database_update_notice);
             })();
         }
+
+        const svc_serverHealth = this.services.get('server-health');
+
+        svc_serverHealth.add_check('sqlite', async () => {
+            const [{ user_version }] = await this._requireRead('PRAGMA user_version');
+            if ( user_version !== TARGET_VERSION ) {
+                throw new Error(
+                    `Database version mismatch: expected ${TARGET_VERSION}, ` +
+                    `got ${user_version}`);
+            }
+        });
     }
 
     async _read (query, params = []) {

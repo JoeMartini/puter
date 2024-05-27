@@ -4,9 +4,22 @@ name: Docker Image CI
 # Configures this workflow to run every time a change is pushed to the
 # branch called `main`.
 on:
-  push:
-    branches: ['main']
-  
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version WITHOUT leading "v"'
+        required: true
+      major:
+        description: 'Major version component (redundant, but needed)'
+        required: true
+      minor:
+        description: 'Minor version component (redundant, but needed)'
+        required: true
+  # push:
+    # tags:
+    #   - '*.*.*'
+    # branches:
+    #   - 'release'
 
 # Defines two custom environment variables for the workflow. These are used
 # for the Container registry domain, and a name for the Docker image that
@@ -40,8 +53,8 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Set up QEMU 
+
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -56,16 +69,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
-            type=sha
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=semver,pattern=${{github.event.inputs.version}}
+            type=semver,pattern=${{github.event.inputs.major}}.${{github.event.inputs.minor}}
 
       # This step uses the `docker/build-push-action` action to build the
       # image, based on your repository's `Dockerfile`. If the build succeeds,
@@ -81,6 +88,8 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

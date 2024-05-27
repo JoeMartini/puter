@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require('./util/context');
 
 
@@ -192,6 +192,33 @@ const install = async ({ services, app }) => {
 
     const { SessionService } = require('./services/SessionService');
     services.registerService('session', SessionService);
+
+    const { EdgeRateLimitService } = require('./services/abuse-prevention/EdgeRateLimitService');
+    services.registerService('edge-rate-limit', EdgeRateLimitService);
+
+    const { Emailservice } = require('./services/EmailService');
+    services.registerService('email', Emailservice);
+
+    const { TokenService } = require('./services/auth/TokenService');
+    services.registerService('token', TokenService);
+
+    const { OTPService } = require('./services/auth/OTPService');
+    services.registerService('otp', OTPService);
+
+    const { UserProtectedEndpointsService } = require("./services/web/UserProtectedEndpointsService");
+    services.registerService('__user-protected-endpoints', UserProtectedEndpointsService);
+
+    const { AntiCSRFService } = require('./services/auth/AntiCSRFService');
+    services.registerService('anti-csrf', AntiCSRFService);
+
+    const { LockService } = require('./services/LockService');
+    services.registerService('lock', LockService);
+
+    const { PuterHomepageService } = require('./services/PuterHomepageService');
+    services.registerService('puter-homepage', PuterHomepageService);
+
+    const { GetUserService } = require('./services/GetUserService');
+    services.registerService('get-user', GetUserService);
 }
 
 const install_legacy = async ({ services }) => {
@@ -203,7 +230,6 @@ const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { WSPushService } = require('./services/WSPushService');
     const { ReferralCodeService } = require('./services/ReferralCodeService');
-    const { Emailservice } = require('./services/EmailService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
     const { AppInformationService } = require('./services/AppInformationService');
@@ -217,7 +243,6 @@ const install_legacy = async ({ services }) => {
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('__event-push-ws', WSPushService);
     services.registerService('referral-code', ReferralCodeService);
-    services.registerService('email', Emailservice);
     services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
     services.registerService('app-information', AppInformationService);
