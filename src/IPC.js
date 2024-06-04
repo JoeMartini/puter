@@ -28,9 +28,10 @@ import UIPrompt from './UI/UIPrompt.js';
 import download from './helpers/download.js';
 import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
+import update_mouse_position from './helpers/update_mouse_position.js';
 
 /**
- * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI) aand each other using the postMessage API.
+ * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
  * The following sets up an Inter-Process Messaging System between apps and the GUI that enables communication
  * for various tasks such as displaying alerts, prompts, managing windows, handling file operations, and more.
  * 
@@ -355,32 +356,109 @@ window.addEventListener('message', async (event) => {
         }, '*');
     }
     //--------------------------------------------------------
+    // mouseMoved
+    //--------------------------------------------------------
+    else if(event.data.msg === 'mouseMoved'){
+        // Auth
+        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+            return;
+
+        // get x and y and sanitize
+        let x = parseInt(event.data.x);
+        let y = parseInt(event.data.y);
+
+        // get parent window
+        const el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // get window position
+        const window_position = $(el_window).position();
+
+        // update mouse position
+        update_mouse_position(x + window_position.left, y + window_position.top + 25);
+    }
+
+    //--------------------------------------------------------
+    // contextMenu
+    //--------------------------------------------------------
+    else if(event.data.msg === 'contextMenu'){
+        // Auth
+        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+            return;
+
+        const hydrator = puter.util.rpc.getHydrator({
+            target: target_iframe.contentWindow,
+        });
+        let value = hydrator.hydrate(event.data.value);
+
+        // get parent window
+        const el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+
+        let items = value.items ?? [];
+        const sanitize_items = items => {
+            return items.map(item => {
+                // Check if the item is just '-'
+                if (item === '-') {
+                    return '-';
+                }
+                // Otherwise, proceed as before
+                return {
+                    html: item.label,
+                    onClick: () => {
+                        if (item.action !== undefined) {
+                            console.log('item.action', item.action);
+                            item.action();
+                        }
+                    },
+                    items: item.items ? sanitize_items(item.items) : undefined
+                };
+            });
+        };
+
+        items = sanitize_items(items);
+
+        // Open context menu
+        UIContextMenu({
+            items: items,
+        });
+
+        $(target_iframe).get(0).focus({preventScroll:true});
+    }
+    //--------------------------------------------------------
     // setMenubar
     //--------------------------------------------------------
     else if(event.data.msg === 'setMenubar') {
         const el_window = window.window_for_app_instance(event.data.appInstanceID);
 
-        console.error(`EXPERIMENTAL: setMenubar is a work-in-progress`);
         const hydrator = puter.util.rpc.getHydrator({
             target: target_iframe.contentWindow,
         });
         const value = hydrator.hydrate(event.data.value);
-        console.log('hydrated value', value);
 
         // Show menubar
         const $menubar = $(el_window).find('.window-menubar')
         $menubar.show();
 
+        // disable system context menu
+        $menubar.on('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
         const sanitize_items = items => {
             return items.map(item => {
+                // Check if the item is just '-'
+                if (item === '-') {
+                    return '-';
+                }
+                // Otherwise, proceed as before
                 return {
                     html: item.label,
                     action: item.action,
-                    items: item.items && sanitize_items(item.items),
+                    items: item.items ? sanitize_items(item.items) : undefined
                 };
             });
         };
-
+          
         // This array will store the menubar button elements
         const menubar_buttons = [];
 
@@ -405,7 +483,10 @@ window.addEventListener('message', async (event) => {
             const ctxMenu = UIContextMenu({
                 delay,
                 parent_element,
-                position: {top: pos.top + 28, left: pos.left},
+                position: {top: pos.top + 30, left: pos.left},
+                css: {
+                    'box-shadow': '0px 2px 6px #00000059'
+                },
                 items: sanitize_items(items),
             });
 
@@ -429,17 +510,15 @@ window.addEventListener('message', async (event) => {
                 const label = html_encode(item.label);
                 const el_item = $(`<div class="window-menubar-item"><span>${label}</span></div>`);
                 const parent_element = el_item.parent()[0];
-                el_item.on('click', () => {
+                
+                el_item.on('mousedown', (e) => {
                     if ( state_open ) {
                         state_open = false;
                         current && current.cancel({ meta: 'menubar' });
                         current_i = null;
                         current = null;
-                        return;
                     }
-                    if (item.action) {
-                        item.action();
-                    } else if (item.items) {
+                    if (item.items) {
                         const pos = el_item[0].getBoundingClientRect();
                         open_menu({
                             i,
@@ -447,8 +526,19 @@ window.addEventListener('message', async (event) => {
                             parent_element,
                             items: item.items,
                         });
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
+                })
+                
+                // Clicking an item with an action will trigger that action
+                el_item.on('click', () => {
+                    if (item.action) {
+                        item.action();
                     }
                 });
+
                 el_item.on('mouseover', () => {
                     if ( ! state_open ) return;
                     if ( ! item.items ) return;
@@ -1201,6 +1291,15 @@ window.addEventListener('message', async (event) => {
     // exit
     //--------------------------------------------------------
     else if(event.data.msg === 'exit'){
-        $(window.window_for_app_instance(event.data.appInstanceID)).close({bypass_iframe_messaging: true});
+        // Ensure status code is a number. Convert any truthy non-numbers to 1.
+        let status_code = event.data.statusCode ?? 0;
+        if (status_code && (typeof status_code !== 'number')) {
+            status_code = 1;
+        }
+
+        $(window.window_for_app_instance(event.data.appInstanceID)).close({
+            bypass_iframe_messaging: true,
+            status_code,
+        });
     }
 });

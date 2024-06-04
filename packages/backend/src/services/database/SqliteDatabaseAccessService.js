@@ -42,7 +42,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 7;
+        const TARGET_VERSION = 8;
 
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
@@ -56,6 +56,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0007_sessions.sql',
                 '0008_otp.sql',
                 '0009_app-prefix-fix.sql',
+                '0010_add-git-app.sql',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
@@ -98,6 +99,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         if ( user_version <= 6 ) {
             upgrade_files.push('0009_app-prefix-fix.sql');
+        }
+
+        if ( user_version <= 7 ) {
+            upgrade_files.push('0010_add-git-app.sql');
         }
 
         if ( upgrade_files.length > 0 ) {
@@ -163,22 +168,13 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         query = this.sqlite_transform_query_(query);
         params = this.sqlite_transform_params_(params);
 
-        try {
-            const stmt = this.db.prepare(query);
-            const info = stmt.run(...params);
+        const stmt = this.db.prepare(query);
+        const info = stmt.run(...params);
 
-            return {
-                insertId: info.lastInsertRowid,
-                anyRowsAffected: info.changes > 0,
-            };
-        } catch ( e ) {
-            console.error(e);
-            console.log('everything', {
-                query, params,
-            })
-            console.log(params.map(p => typeof p));
-            // throw e;
-        }
+        return {
+            insertId: info.lastInsertRowid,
+            anyRowsAffected: info.changes > 0,
+        };
     }
 
     async _batch_write (entries) {

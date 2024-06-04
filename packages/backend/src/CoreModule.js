@@ -219,6 +219,15 @@ const install = async ({ services, app }) => {
 
     const { GetUserService } = require('./services/GetUserService');
     services.registerService('get-user', GetUserService);
+
+    const { DetailProviderService } = require('./services/DetailProviderService');
+    services.registerService('whoami', DetailProviderService);
+
+    const { DevTODService } = require('./services/DevTODService');
+    services.registerService('__dev-tod', DevTODService);
+
+    const { DriverService } = require("./services/drivers/DriverService");
+    services.registerService('driver', DriverService);
 }
 
 const install_legacy = async ({ services }) => {

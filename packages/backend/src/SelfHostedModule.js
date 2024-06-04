@@ -5,6 +5,9 @@ class SelfHostedModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
 
+        const { SelfhostedService } = require('./services/SelfhostedService');
+        services.registerService('__selfhosted', SelfhostedService);
+
         const DefaultUserService = require('./services/DefaultUserService');
         services.registerService('__default-user', DefaultUserService);
 
@@ -40,6 +43,15 @@ class SelfHostedModule extends AdvancedBase {
                         PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
                     }
                 },
+                {
+                    name: 'git:rollup-watch',
+                    directory: 'packages/git',
+                    command: 'npx',
+                    args: ['rollup', '-c', 'rollup.config.js', '--watch'],
+                    env: {
+                        PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
+                    }
+                },
             ],
         });
 
@@ -57,6 +69,10 @@ class SelfHostedModule extends AdvancedBase {
                 {
                     prefix: '/builtin/phoenix',
                     path: path_.resolve(__dirname, '../../../packages/phoenix/dist'),
+                },
+                {
+                    prefix: '/builtin/git',
+                    path: path_.resolve(__dirname, '../../../packages/git/dist'),
                 },
             ],
         });

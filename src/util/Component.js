@@ -1,6 +1,8 @@
 import ValueHolder from "./ValueHolder.js";
 
-export class Component extends HTMLElement {
+export const Component = def(class Component extends HTMLElement {
+    static ID = 'util.Component';
+
     #has_created_element = false;
     #has_called_on_ready = false;
 
@@ -11,14 +13,44 @@ export class Component extends HTMLElement {
         'value bindings for create_template',
     ]
 
-    constructor (property_values) {
-        super();
+    static on_self_registered ({ is_owner, on_other_registered }) {
+        // Only invoked for Component itself, not subclasses
+        if ( ! is_owner ) return;
 
+        // Automatically define components for all HTML elements
+        on_other_registered(({ cls }) => {
+            console.log('detected class', cls.ID);
+            if ( cls.ID === 'ui.component.StepHeading' ) {
+                globalThis.sh_shouldbe = cls;
+                console.log(
+                    'this is what StepHeading should be',
+                    cls
+                );
+            }
+            if ( globalThis.lib.is_subclass(cls, HTMLElement) ) {
+                console.log('registering as an element');
+                defineComponent(cls);
+            }
+        });
+    }
+
+    _set_dom_based_on_render_mode () {
         if ( this.constructor.RENDER_MODE === Component.NO_SHADOW ) {
             this.dom_ = this;
         } else {
             this.dom_ = this.attachShadow({ mode: 'open' });
         }
+    }
+
+    constructor (property_values) {
+        super();
+
+        property_values = property_values || {};
+
+        // We allow a subclass of component to define custom behavior
+        // for the `RENDER_MODE` static property. This is so JustHTML
+        // can have ths `no_shadow: true` option.
+        this._set_dom_based_on_render_mode({ property_values });
 
         this.values_ = {};
 
@@ -81,6 +113,10 @@ export class Component extends HTMLElement {
     }
 
     get (key) {
+        if ( ! this.values_.hasOwnProperty(key) ) {
+            throw new Error(`Unknown property \`${key}\` in ${
+                this.constructor.ID || this.constructor.name}`);
+        }
         return this.values_[key].get();
     }
 
@@ -103,6 +139,11 @@ export class Component extends HTMLElement {
         }
 
         if ( destination instanceof HTMLElement ) {
+            destination.appendChild(this);
+            return;
+        }
+
+        if ( destination instanceof ShadowRoot ) {
             destination.appendChild(this);
             return;
         }
@@ -139,17 +180,34 @@ export class Component extends HTMLElement {
     get_api_ () {
         return {
             listen: (name, callback) => {
+                if ( Array.isArray(name) ) {
+                    const names = name;
+                    for ( const name of names ) {
+                        this.values_[name].sub((_, more) => {
+                            callback(this, { ...more, name });
+                        });
+                    }
+                }
                 this.values_[name].sub(callback);
                 callback(this.values_[name].get(), {});
             }
         };
     }
-}
+});
 
-export const defineComponent = (name, component) => {
-    // TODO: This is necessary because files can be loaded from
-    // both `/src/UI` and `/UI` in the URL; we need to fix that
-    if ( ! customElements.get(name) ) {
+export const defineComponent = (component) => {
+    // Web components need tags (despite that we never use the tags)
+    // because it was designed this way.
+    if ( globalThis.lib.is_subclass(component, HTMLElement) ) {
+        let name = component.ID;
+        name = 'c-' + name.split('.').pop().toLowerCase();
+        // TODO: This is necessary because files can be loaded from
+        // both `/src/UI` and `/UI` in the URL; we need to fix that
+        if ( customElements.get(name) ) return;
+
+        // console.log('[surely] defining', name, 'as', component);
+
         customElements.define(name, component);
+        component.defined_as = name;
     }
 };
