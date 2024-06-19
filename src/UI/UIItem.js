@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import UIWindowShare from './UIWindowShare.js';
 import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
@@ -26,6 +27,7 @@ import UIContextMenu from './UIContextMenu.js'
 import UIAlert from './UIAlert.js'
 import path from "../lib/path.js"
 import truncate_filename from '../helpers/truncate_filename.js';
+import launch_app from "../helpers/launch_app.js"
 
 function UIItem(options){
     const matching_appendto_count = $(options.appendTo).length;
@@ -53,7 +55,7 @@ function UIItem(options){
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
     options.metadata = options.metadata ?? '';
-    options.multiselectable = options.multiselectable ?? true;
+    options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
     options.shortcut_to = options.shortcut_to ?? '';
     options.shortcut_to_path = options.shortcut_to_path ?? '';
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
@@ -425,7 +427,7 @@ function UIItem(options){
                 // open each item
                 for (let i = 0; i < items_to_open.length; i++) {
                     const item = items_to_open[i];
-                    window.launch_app({
+                    launch_app({
                         name: options.associated_app_name, 
                         file_path: item.path,
                         // app_obj: open_item_meta.suggested_apps[0],
@@ -649,7 +651,7 @@ function UIItem(options){
                 UIAlert(`The name ".." is not allowed, because it is a reserved name. Please choose another name.`)
             }
 
-            $(el_item_name).html(truncate_filename(options.name).replaceAll(' ', '&nbsp;'));
+            $(el_item_name).html(html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;'));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();
@@ -783,6 +785,35 @@ function UIItem(options){
                 menu_items.push('-');
             }
             if(!are_trashed){
+                menu_items.push({
+                    html: 'Share With…',
+                    onClick: async function(){
+                        // if(window.user.is_temp && 
+                        //     !await UIWindowSaveAccount({
+                        //         message: 'Please create an account to proceed.',
+                        //         send_confirmation_code: true,
+                        //         window_options: {
+                        //             backdrop: true,
+                        //             close_on_backdrop_click: false,
+                        //         }
+                        //     },))
+                        //     return;
+                        // else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                        //     return;
+
+                        let items = [];
+                        $selected_items.each(function() {
+                            const ell = this;
+                            items.push({uid: $(ell).attr('data-uid'), path: $(ell).attr('data-path')});
+                        })
+                        UIWindowShare(items);
+                    }
+                })
+                // -------------------------------------------
+                // -
+                // -------------------------------------------
+                menu_items.push({ is_divider: true });
+
                 // -------------------------------------------
                 // Donwload
                 // -------------------------------------------
@@ -830,7 +861,6 @@ function UIItem(options){
                     })
                 }
             });
-
             // -------------------------------------------
             // Copy
             // -------------------------------------------
@@ -1009,7 +1039,7 @@ function UIItem(options){
                                         window.mutate_user_preferences(window.user_preferences);
                                     }
                                 }
-                                window.launch_app({
+                                launch_app({
                                     name: suggested_app.name,
                                     file_path: $(el_item).attr('data-path'),
                                     window_title: $(el_item).attr('data-name'),
@@ -1055,6 +1085,29 @@ function UIItem(options){
                 if(!is_trash && !is_trashed && options.is_dir)
                     menu_items.push('-');
             }
+            // -------------------------------------------
+            // Share With…
+            // -------------------------------------------
+            if(!is_trashed && !is_trash){
+                menu_items.push({
+                    html: 'Share With…',
+                    onClick: async function(){
+                        // if(window.user.is_temp && 
+                        //     !await UIWindowSaveAccount({
+                        //         message: 'Please create an account to proceed.',
+                        //         send_confirmation_code: true,
+                        //         window_options: {
+                        //             backdrop: true,
+                        //             close_on_backdrop_click: false,
+                        //         }
+                        //     }))
+                        //     return;
+                        // else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                        //     return;
+                        UIWindowShare([{uid: $(el_item).attr('data-uid'), path: $(el_item).attr('data-path'), name: $(el_item).attr('data-name'), icon: $(el_item_icon).find('img').attr('src')}]);
+                    }
+                });
+            }
 
             // -------------------------------------------
             // Publish As Website
@@ -1091,7 +1144,7 @@ function UIItem(options){
                     html: i18n('deploy_as_app'),
                     disabled: !options.is_dir,
                     onClick: async function () {
-                        window.launch_app({
+                        launch_app({
                             name: 'dev-center',
                             file_path: $(el_item).attr('data-path'),
                             file_uid: $(el_item).attr('data-uid'),
@@ -1190,7 +1243,7 @@ function UIItem(options){
             // -------------------------------------------
             // Cut
             // -------------------------------------------
-            if($(el_item).attr('data-immutable') === '0'){
+            if($(el_item).attr('data-immutable') === '0' && !is_shared_with_me){
                 menu_items.push({
                     html: i18n('cut'),
                     onClick: function(){
@@ -1259,7 +1312,7 @@ function UIItem(options){
             // -------------------------------------------
             // Delete
             // -------------------------------------------
-            if($(el_item).attr('data-immutable') === '0' && !is_trashed){
+            if($(el_item).attr('data-immutable') === '0' && !is_trashed && !is_shared_with_me){
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function(){
@@ -1539,6 +1592,11 @@ window.activate_item_name_editor= function(el_item){
     $(el_item_name_editor).show();
     $(el_item_name_editor).focus();
     $(el_item_name_editor).addClass('item-name-editor-active');
+
+    // html-decode the content of the item name editor, this is necessary because the item name is html-encoded when displayed
+    // but the item name editor is not html-encoded. If we remove this line, the item name editor will display the html-encoded
+    // version of the item name after a successful name edit.
+    $(el_item_name_editor).val(html_decode($(el_item_name_editor).val()));
 
     // select all text before extension
     const item_name = $(el_item).attr('data-name');

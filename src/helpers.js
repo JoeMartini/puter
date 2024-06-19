@@ -28,8 +28,9 @@ import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
 import truncate_filename from './helpers/truncate_filename.js';
-import { PROCESS_RUNNING, PortalProcess, PseudoProcess } from "./definitions.js";
 import UIWindowProgress from './UI/UIWindowProgress.js';
+import launch_app from "./helpers/launch_app.js";
+import globToRegExp from "./helpers/globToRegExp.js";
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || window.auth_token === null)
@@ -162,203 +163,6 @@ window.scrollParentToChild = (parent, child)=>{
     }
 }
 
-window.getItem = async function(options){
-    return $.ajax({
-        url: window.api_origin + "/getItem",
-        type: 'POST',
-        data: JSON.stringify({ 
-            key: options.key,
-            app: options.app_uid,
-        }),
-        async: true,
-        contentType: "application/json",
-        headers: {
-            "Authorization": "Bearer "+window.auth_token
-        },
-        statusCode: {
-            401: function () {
-                window.logout();
-            },
-        },        
-        success: function (result){
-            if(options.success && typeof(options.success) === "function")
-                options.success(result);
-        }  
-    })
-}
-
-window.setItem = async function(options){
-    return $.ajax({
-        url: window.api_origin + "/setItem",
-        type: 'POST',
-        data: JSON.stringify({ 
-            app: options.app_uid,
-            key: options.key,
-            value: options.value,
-        }),
-        async: true,
-        contentType: "application/json",
-        headers: {
-            "Authorization": "Bearer "+window.auth_token
-        },
-        statusCode: {
-            401: function () {
-                window.logout();
-            },
-        },        
-        success: function (fsentry){
-            if(options.success && typeof(options.success) === "function")
-                options.success(fsentry)
-        }  
-    })
-}
-
-/**
- * Converts a glob pattern to a regular expression, with optional extended or globstar matching.
- *
- * @param {string} glob - The glob pattern to convert.
- * @param {Object} [opts] - Optional options for the conversion.
- * @param {boolean} [opts.extended=false] - If true, enables extended matching with single character matching, character ranges, group matching, etc.
- * @param {boolean} [opts.globstar=false] - If true, uses globstar matching, where '*' matches zero or more path segments.
- * @param {string} [opts.flags] - Regular expression flags to include (e.g., 'i' for case-insensitive).
- * @returns {RegExp} The generated regular expression.
- * @throws {TypeError} If the provided glob pattern is not a string.
- */
-window.globToRegExp = function (glob, opts) {
-    if (typeof glob !== 'string') {
-        throw new TypeError('Expected a string');
-    }
-
-    var str = String(glob);
-
-    // The regexp we are building, as a string.
-    var reStr = "";
-
-    // Whether we are matching so called "extended" globs (like bash) and should
-    // support single character matching, matching ranges of characters, group
-    // matching, etc.
-    var extended = opts ? !!opts.extended : false;
-
-    // When globstar is _false_ (default), '/foo/*' is translated a regexp like
-    // '^\/foo\/.*$' which will match any string beginning with '/foo/'
-    // When globstar is _true_, '/foo/*' is translated to regexp like
-    // '^\/foo\/[^/]*$' which will match any string beginning with '/foo/' BUT
-    // which does not have a '/' to the right of it.
-    // E.g. with '/foo/*' these will match: '/foo/bar', '/foo/bar.txt' but
-    // these will not '/foo/bar/baz', '/foo/bar/baz.txt'
-    // Lastely, when globstar is _true_, '/foo/**' is equivelant to '/foo/*' when
-    // globstar is _false_
-    var globstar = opts ? !!opts.globstar : false;
-
-    // If we are doing extended matching, this boolean is true when we are inside
-    // a group (eg {*.html,*.js}), and false otherwise.
-    var inGroup = false;
-
-    // RegExp flags (eg "i" ) to pass in to RegExp constructor.
-    var flags = opts && typeof (opts.flags) === "string" ? opts.flags : "";
-
-    var c;
-    for (var i = 0, len = str.length; i < len; i++) {
-        c = str[i];
-
-        switch (c) {
-            case "/":
-            case "$":
-            case "^":
-            case "+":
-            case ".":
-            case "(":
-            case ")":
-            case "=":
-            case "!":
-            case "|":
-                reStr += "\\" + c;
-                break;
-
-            case "?":
-                if (extended) {
-                    reStr += ".";
-                    break;
-                }
-                // fallthrough
-
-            case "[":
-            case "]":
-                if (extended) {
-                    reStr += c;
-                    break;
-                }
-                // fallthrough
-
-            case "{":
-                if (extended) {
-                    inGroup = true;
-                    reStr += "(";
-                    break;
-                }
-                // fallthrough
-
-            case "}":
-                if (extended) {
-                    inGroup = false;
-                    reStr += ")";
-                    break;
-                }
-                // fallthrough
-
-            case ",":
-                if (inGroup) {
-                    reStr += "|";
-                    break;
-                }
-                reStr += "\\" + c;
-                break;
-
-            case "*":
-                // Move over all consecutive "*"'s.
-                // Also store the previous and next characters
-                var prevChar = str[i - 1];
-                var starCount = 1;
-                while (str[i + 1] === "*") {
-                    starCount++;
-                    i++;
-                }
-                var nextChar = str[i + 1];
-
-                if (!globstar) {
-                    // globstar is disabled, so treat any number of "*" as one
-                    reStr += ".*";
-                } else {
-                    // globstar is enabled, so determine if this is a globstar segment
-                    var isGlobstar = starCount > 1                      // multiple "*"'s
-                        && (prevChar === "/" || prevChar === undefined)   // from the start of the segment
-                        && (nextChar === "/" || nextChar === undefined)   // to the end of the segment
-
-                    if (isGlobstar) {
-                        // it's a globstar, so match zero or more path segments
-                        reStr += "((?:[^/]*(?:/|$))*)";
-                        i++; // move over the "/"
-                    } else {
-                        // it's not a globstar, so only match one path segment
-                        reStr += "([^/]*)";
-                    }
-                }
-                break;
-
-            default:
-                reStr += c;
-        }
-    }
-
-    // When regexp 'g' flag is specified don't
-    // constrain the regular expression with ^ & $
-    if (!flags || !~flags.indexOf('g')) {
-        reStr = "^" + reStr + "$";
-    }
-
-    return new RegExp(reStr, flags);
-};
-  
 /**
  * Validates the provided file system entry name.
  *
@@ -488,7 +292,7 @@ window.check_fsentry_against_allowed_file_types_string =function (fsentry, allow
             }
 
             // MIME types (e.g. text/plain)
-            else if(window.globToRegExp(allowed_file_type).test(fsentry.type?.toLowerCase())){
+            else if(globToRegExp(allowed_file_type).test(fsentry.type?.toLowerCase())){
                 passes_allowed_file_type_filter = true;
                 break;
             }
@@ -894,6 +698,8 @@ window.item_icon = async (fsentry)=>{
             return { image: window.icons['folder-videos.svg'], type: 'icon' };
         else if (fsentry.path === window.desktop_path)
             return { image: window.icons['folder-desktop.svg'], type: 'icon' };
+        else if (fsentry.path === window.public_path)
+            return { image: window.icons['folder-public.svg'], type: 'icon' };
         // regular directories
         else
             return {image: window.icons['folder.svg'], type: 'icon'};
@@ -1014,64 +820,65 @@ window.item_icon = async (fsentry)=>{
  */
 
 window.show_save_account_notice_if_needed = function(message){
-    window.getItem({
+    puter.kv.get({
         key: "save_account_notice_shown",
-        success: async function(value){
-            if(!value && window.user?.is_temp){
-                window.setItem({key: "save_account_notice_shown", value: true});
+    }).then(async function(value){
+        if(!value && window.user?.is_temp){
+            puter.kv.set({
+                key: "save_account_notice_shown",
+                value: true,
+            });
+            // Show the notice
+            setTimeout(async () => {
+                const alert_resp = await UIAlert({
+                    message: message ?? `<strong>Congrats on storing data!</strong><p>Don't forget to save your session! You are in a temporary session. Save session to avoid accidentally losing your work.</p>`,
+                    body_icon: window.icons['reminder.svg'],
+                    buttons:[
+                        {
+                            label: i18n('save_session'),
+                            value: 'save-session',
+                            type: 'primary',
+                        },
+                        // {
+                        //     label: 'Log into an existing account',
+                        //     value: 'login',
+                        // },
+                        {
+                            label: `I'll do it later`,
+                            value: 'remind-later',
+                        },
+                    ],
+                    window_options: {
+                        backdrop: true,
+                        close_on_backdrop_click: false,
+                    }
+    
+                })   
+                
+                if(alert_resp === 'remind-later'){
+                    // TODO
+                }
+                if(alert_resp === 'save-session'){
+                    let saved = await UIWindowSaveAccount({
+                        send_confirmation_code: false,
+                    });
 
-                // Show the notice
-                setTimeout(async () => {
-                    const alert_resp = await UIAlert({
-                        message: message ?? `<strong>Congrats on storing data!</strong><p>Don't forget to save your session! You are in a temporary session. Save session to avoid accidentally losing your work.</p>`,
-                        body_icon: window.icons['reminder.svg'],
-                        buttons:[
-                            {
-                                label: i18n('save_session'),
-                                value: 'save-session',
-                                type: 'primary',
-                            },
-                            // {
-                            //     label: 'Log into an existing account',
-                            //     value: 'login',
-                            // },
-                            {
-                                label: `I'll do it later`,
-                                value: 'remind-later',
-                            },
-                        ],
+                }else if (alert_resp === 'login'){
+                    let login_result = await UIWindowLogin({
+                        show_signup_button: false, 
+                        reload_on_success: true,
+                        send_confirmation_code: false,
                         window_options: {
+                            show_in_taskbar: false,
                             backdrop: true,
                             close_on_backdrop_click: false,
                         }
-        
-                    })   
-                    
-                    if(alert_resp === 'remind-later'){
-                        // TODO
-                    }
-                    if(alert_resp === 'save-session'){
-                        let saved = await UIWindowSaveAccount({
-                            send_confirmation_code: false,
-                        });
-
-                    }else if (alert_resp === 'login'){
-                        let login_result = await UIWindowLogin({
-                            show_signup_button: false, 
-                            reload_on_success: true,
-                            send_confirmation_code: false,
-                            window_options: {
-                                show_in_taskbar: false,
-                                backdrop: true,
-                                close_on_backdrop_click: false,
-                            }
-                        });
-                        // FIXME: Report login error.
-                    }
-                }, window.desktop_loading_fade_delay + 1000);
-            }
+                    });
+                    // FIXME: Report login error.
+                }
+            }, window.desktop_loading_fade_delay + 1000);
         }
-    })
+    });
 }
 
 window.onpopstate = (event) => {
@@ -1565,300 +1372,6 @@ window.trigger_download = (paths)=>{
     });
 }
 
-/**
- * 
- * @param {*} options 
- */
-window.launch_app = async (options)=>{
-    const uuid = options.uuid ?? window.uuidv4();
-    let icon, title, file_signature;
-    const window_options = options.window_options ?? {};
-
-    if (options.parent_instance_id) {
-        window_options.parent_instance_id = options.parent_instance_id;
-    }
-
-    // try to get 3rd-party app info
-    let app_info = options.app_obj ?? await window.get_apps(options.name);
-
-    //-----------------------------------
-    // icon
-    //-----------------------------------
-    if(app_info.icon)
-        icon = app_info.icon;
-    else if(options.name === 'explorer')
-        icon = window.icons['folder.svg'];
-    else
-        icon = window.icons['app-icon-'+options.name+'.svg']
-
-    //-----------------------------------
-    // title
-    //-----------------------------------
-    if(app_info.title)
-        title = app_info.title;
-    else if(options.window_title)
-        title = options.window_title;
-    else if(options.name)
-        title = options.name;
-
-    //-----------------------------------
-    // maximize on start
-    //-----------------------------------
-    if(app_info.maximize_on_start && app_info.maximize_on_start === 1)
-        options.maximized = 1;
-
-    //-----------------------------------
-    // if opened a file, sign it
-    //-----------------------------------
-    if(options.file_signature)
-        file_signature = options.file_signature;
-    else if(options.file_uid){
-        file_signature = await puter.fs.sign(app_info.uuid, {uid: options.file_uid, action: 'write'});
-        // add token to options
-        options.token = file_signature.token;
-        // add file_signature to options
-        file_signature = file_signature.items;
-    }
-
-    // -----------------------------------
-    // Create entry to track the "portal"
-    // (portals are processese in Puter's GUI)
-    // -----------------------------------
-
-    let el_win;
-    let process;
-
-    //------------------------------------
-    // Explorer
-    //------------------------------------
-    if(options.name === 'explorer' || options.name === 'trash'){
-        process = new PseudoProcess({
-            uuid,
-            name: 'explorer',
-            parent: options.parent_instance_id,
-            meta: {
-                launch_options: options,
-                app_info: app_info,
-            }
-        });
-        const svc_process = globalThis.services.get('process');
-        svc_process.register(process);
-        if(options.path === window.home_path){
-            title = 'Home';
-            icon = window.icons['folder-home.svg'];
-        }
-        else if(options.path === window.trash_path){
-            title = 'Trash';
-            icon = window.icons['trash.svg'];
-        }
-        else if(!options.path)
-            title = window.root_dirname;
-        else
-            title = path.dirname(options.path);
-
-        // open window
-        el_win = UIWindow({
-            element_uuid: uuid,
-            icon: icon,
-            path: options.path ?? window.home_path,
-            title: title,
-            uid: null,
-            is_dir: true,
-            app: 'explorer',
-            ...window_options,
-            is_maximized: options.maximized,
-        });
-    }
-    //------------------------------------
-    // All other apps
-    //------------------------------------
-    else{
-        process = new PortalProcess({
-            uuid,
-            name: app_info.name,
-            parent: options.parent_instance_id,
-            meta: {
-                launch_options: options,
-                app_info: app_info,
-            }
-        });
-        const svc_process = globalThis.services.get('process');
-        svc_process.register(process);
-
-        //-----------------------------------
-        // iframe_url
-        //-----------------------------------
-        let iframe_url;
-
-        // This can be any trusted URL that won't be used for other apps
-        const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
-
-        if(!app_info.index_url){
-            iframe_url = new URL('https://'+options.name+'.' + window.app_domain + `/index.html`);
-        } else if ( app_info.index_url.startsWith(BUILTIN_PREFIX) ) {
-            const name = app_info.index_url.slice(BUILTIN_PREFIX.length);
-            iframe_url = new URL(`${window.gui_origin}/builtin/${name}`);
-        } else {
-            iframe_url = new URL(app_info.index_url);
-        }
-
-        // add app_instance_id to URL
-        iframe_url.searchParams.append('puter.app_instance_id', uuid);
-
-        // add app_id to URL
-        iframe_url.searchParams.append('puter.app.id', app_info.uuid);
-
-        // add parent_app_instance_id to URL
-        if (options.parent_instance_id) {
-            iframe_url.searchParams.append('puter.parent_instance_id', options.parent_instance_id);
-        }
-
-        if(file_signature){
-            iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
-            iframe_url.searchParams.append('puter.item.path', options.file_path ? `~/` + options.file_path.split('/').slice(1).join('/') : file_signature.path);
-            iframe_url.searchParams.append('puter.item.name', file_signature.fsentry_name);
-            iframe_url.searchParams.append('puter.item.read_url', file_signature.read_url);
-            iframe_url.searchParams.append('puter.item.write_url', file_signature.write_url);
-            iframe_url.searchParams.append('puter.item.metadata_url', file_signature.metadata_url);
-            iframe_url.searchParams.append('puter.item.size', file_signature.fsentry_size);
-            iframe_url.searchParams.append('puter.item.accessed', file_signature.fsentry_accessed);
-            iframe_url.searchParams.append('puter.item.modified', file_signature.fsentry_modified);
-            iframe_url.searchParams.append('puter.item.created', file_signature.fsentry_created);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
-        }
-        else if(options.readURL){
-            iframe_url.searchParams.append('puter.item.name', options.filename);
-            iframe_url.searchParams.append('puter.item.path', options.file_path ? `~/` + options.file_path.split('/').slice(1).join('/') : undefined);
-            iframe_url.searchParams.append('puter.item.read_url', options.readURL);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
-        }
-
-        if (app_info.godmode && app_info.godmode === 1){
-            // Add auth_token to GODMODE apps
-
-            iframe_url.searchParams.append('puter.auth.token', window.auth_token);
-            iframe_url.searchParams.append('puter.auth.username', window.user.username);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
-        } else if (options.token){
-            // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
-            // that has access to everything.
-
-            iframe_url.searchParams.append('puter.auth.token', options.token);
-        } else {
-            // Try to acquire app token from the server
-
-            let response = await fetch(window.api_origin + "/auth/get-user-app-token", {
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer "+ window.auth_token,
-                },
-                "body": JSON.stringify({app_uid: app_info.uid ?? app_info.uuid}),
-                "method": "POST",
-                });
-            let res = await response.json();
-            if(res.token){
-                iframe_url.searchParams.append('puter.auth.token', res.token);
-            }
-        }
-
-        if(window.api_origin)
-            iframe_url.searchParams.append('puter.api_origin', window.api_origin);
-
-        // Add options.params to URL
-        if(options.params){
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
-            for (const property in options.params) {
-                iframe_url.searchParams.append(property, options.params[property]);
-            }
-        }
-
-        // Add locale to URL
-        iframe_url.searchParams.append('puter.locale', window.locale);
-
-        // Add options.args to URL
-        iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
-
-        // ...and finally append utm_source=puter.com to the URL
-        iframe_url.searchParams.append('utm_source', 'puter.com');
-
-        // register app_instance_uid
-        window.app_instance_ids.add(uuid);
-
-        // open window
-        el_win = UIWindow({
-            element_uuid: uuid,
-            title: title,
-            iframe_url: iframe_url.href,
-            params: options.params ?? undefined,
-            icon: icon,
-            window_class: 'window-app',
-            update_window_url: true,
-            app_uuid: app_info.uuid ?? app_info.uid,
-            top: options.maximized ? 0 : undefined,
-            left: options.maximized ? 0 : undefined,
-            height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
-            width: options.maximized ? `100%` : undefined,
-            app: options.name,
-            is_visible: ! app_info.background,
-            is_maximized: options.maximized,
-            is_fullpage: options.is_fullpage,
-            ...window_options,
-            show_in_taskbar: app_info.background ? false : window_options?.show_in_taskbar,
-        });
-
-        if ( ! app_info.background ) {
-            $(el_win).show();
-        }
-
-        // send post request to /rao to record app open
-        if(options.name !== 'explorer'){
-            // add the app to the beginning of the array
-            window.launch_apps.recent.unshift(app_info);
-
-            // dedupe the array by uuid, uid, and id
-            window.launch_apps.recent = _.uniqBy(window.launch_apps.recent, 'name');
-
-            // limit to window.launch_recent_apps_count
-            window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
-
-            // send post request to /rao to record app open
-            $.ajax({
-                url: window.api_origin + "/rao",
-                type: 'POST',
-                data: JSON.stringify({ 
-                    original_client_socket_id: window.socket?.id,
-                    app_uid: app_info.uid ?? app_info.uuid,
-                }),
-                async: true,
-                contentType: "application/json",
-                headers: {
-                    "Authorization": "Bearer "+window.auth_token
-                },
-            })
-        }
-    }
-
-    (async () => {
-        const el = await el_win;
-        $(el).on('remove', () => {
-            const svc_process = globalThis.services.get('process');
-            svc_process.unregister(process.uuid);
-
-            // If it's a non-sdk app, report that it launched and closed.
-            // FIXME: This is awkward. Really, we want some way of knowing when it's launched and reporting that immediately instead.
-            const $app_iframe = $(el).find('.window-app-iframe');
-            if ($app_iframe.attr('data-appUsesSdk') !== 'true') {
-                window.report_app_launched(process.uuid, { uses_sdk: false });
-                // We also have to report an extra close event because the real one was sent already
-                window.report_app_closed(process.uuid);
-            }
-        });
-
-        process.references.el_win = el;
-        process.chstatus(PROCESS_RUNNING);
-    })();
-}
-
 window.open_item = async function(options){
     let el_item = options.item;
     const $el_parent_window = $(el_item).closest('.window');
@@ -1911,7 +1424,7 @@ window.open_item = async function(options){
             let res = await puter.fs.sign(window.host_app_uid ?? parent_window_app_uid, {uid: uid, action: 'write'});
             res = res.items;
             // todo split is buggy because there might be a slash in the filename
-            res.path = `~/` + item_path.split('/').slice(2).join('/');
+            res.path = privacy_aware_path(item_path);
             const parent_uuid = $el_parent_window.attr('data-parent_uuid');
             const return_to_parent_window = $el_parent_window.attr('data-return_to_parent_window') === 'true';
             if(return_to_parent_window){
@@ -1968,7 +1481,7 @@ window.open_item = async function(options){
     // Does the user have a preference for this file type?
     //----------------------------------------------------------------
     else if(!associated_app_name && !is_dir && window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
-        window.launch_app({
+        launch_app({
             name: window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
             file_path: item_path,
             window_title: path.basename(item_path),
@@ -1980,7 +1493,7 @@ window.open_item = async function(options){
     // Is there an app associated with this item?
     //----------------------------------------------------------------
     else if(associated_app_name !== ''){
-        window.launch_app({
+        launch_app({
             name: associated_app_name,
         })
     }
@@ -2079,7 +1592,7 @@ window.open_item = async function(options){
         // First suggested app is default app to open this item
         //---------------------------------------------
         else{
-            window.launch_app({
+            launch_app({
                 name: suggested_apps[0].name, 
                 token: open_item_meta.token,
                 file_path: item_path,
@@ -2455,145 +1968,6 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
             progwin.close();
         }, window.copy_progress_hide_delay);
     }
-}
-
-/**
- * Generates sharing URLs for various social media platforms and services based on the provided arguments.
- *
- * @global
- * @function
- * @param {Object} args - Configuration object for generating share URLs.
- * @param {string} [args.url] - The URL to share.
- * @param {string} [args.title] - The title or headline of the content to share.
- * @param {string} [args.image] - Image URL associated with the content.
- * @param {string} [args.desc] - A description of the content.
- * @param {string} [args.appid] - App ID for certain platforms that require it.
- * @param {string} [args.redirecturl] - Redirect URL for certain platforms.
- * @param {string} [args.via] - Attribution source, e.g., a Twitter username.
- * @param {string} [args.hashtags] - Comma-separated list of hashtags without '#'.
- * @param {string} [args.provider] - Content provider.
- * @param {string} [args.language] - Content's language.
- * @param {string} [args.userid] - User ID for certain platforms.
- * @param {string} [args.category] - Content's category.
- * @param {string} [args.phonenumber] - Phone number for platforms like SMS or Telegram.
- * @param {string} [args.emailaddress] - Email address to share content to.
- * @param {string} [args.ccemailaddress] - CC email address for sharing content.
- * @param {string} [args.bccemailaddress] - BCC email address for sharing content.
- * @returns {Object} - An object containing key-value pairs where keys are platform names and values are constructed sharing URLs.
- * 
- * @example
- * const shareConfig = {
- *     url: 'https://example.com',
- *     title: 'Check this out!',
- *     desc: 'This is an amazing article on example.com',
- *     via: 'exampleUser'
- * };
- * const shareLinks = window.socialLink(shareConfig);
- * console.log(shareLinks.twitter);  // Outputs the constructed Twitter share link
- */
-window.socialLink = function (args) {
-    const validargs = [
-        'url',
-        'title',
-        'image',
-        'desc',
-        'appid',
-        'redirecturl',
-        'via',
-        'hashtags',
-        'provider',
-        'language',
-        'userid',
-        'category',
-        'phonenumber',
-        'emailaddress',
-        'cemailaddress',
-        'bccemailaddress',
-    ];
-    
-    for(var i = 0; i < validargs.length; i++) {
-        const validarg = validargs[i];
-        if(!args[validarg]) {
-            args[validarg] = '';
-        }
-    }
-    
-    const url = fixedEncodeURIComponent(args.url);
-    const title = fixedEncodeURIComponent(args.title);
-    const image = fixedEncodeURIComponent(args.image);
-    const desc = fixedEncodeURIComponent(args.desc);
-    const via = fixedEncodeURIComponent(args.via);
-    const hash_tags = fixedEncodeURIComponent(args.hashtags);
-    const language = fixedEncodeURIComponent(args.language);
-    const user_id = fixedEncodeURIComponent(args.userid);
-    const category = fixedEncodeURIComponent(args.category);
-    const phone_number = fixedEncodeURIComponent(args.phonenumber);
-    const email_address = fixedEncodeURIComponent(args.emailaddress);
-    const cc_email_address = fixedEncodeURIComponent(args.ccemailaddress);
-    const bcc_email_address = fixedEncodeURIComponent(args.bccemailaddress);
-    
-    var text = title;
-    
-    if(desc) {
-        text += '%20%3A%20';	// This is just this, " : "
-        text += desc;
-    }
-    
-    return {
-        'add.this':'http://www.addthis.com/bookmark.php?url=' + url,
-        'blogger':'https://www.blogger.com/blog-this.g?u=' + url + '&n=' + title + '&t=' + desc,
-        'buffer':'https://buffer.com/add?text=' + text + '&url=' + url,
-        'diaspora':'https://share.diasporafoundation.org/?title=' + title + '&url=' + url,
-        'douban':'http://www.douban.com/recommend/?url=' + url + '&title=' + text,
-        'email':'mailto:' + email_address + '?subject=' + title + '&body=' + desc,
-        'evernote':'https://www.evernote.com/clip.action?url=' + url + '&title=' + text,
-        'getpocket':'https://getpocket.com/edit?url=' + url,
-        'facebook':'http://www.facebook.com/sharer.php?u=' + url,
-        'flattr':'https://flattr.com/submit/auto?user_id=' + user_id + '&url=' + url + '&title=' + title + '&description=' + text + '&language=' + language + '&tags=' + hash_tags + '&hidden=HIDDEN&category=' + category,
-        'flipboard':'https://share.flipboard.com/bookmarklet/popout?v=2&title=' + text + '&url=' + url, 
-        'gmail':'https://mail.google.com/mail/?view=cm&to=' + email_address + '&su=' + title + '&body=' + url + '&bcc=' + bcc_email_address + '&cc=' + cc_email_address,
-        'google.bookmarks':'https://www.google.com/bookmarks/mark?op=edit&bkmk=' + url + '&title=' + title + '&annotation=' + text + '&labels=' + hash_tags + '',
-        'instapaper':'http://www.instapaper.com/edit?url=' + url + '&title=' + title + '&description=' + desc,
-        'line.me':'https://lineit.line.me/share/ui?url=' + url + '&text=' + text,
-        'linkedin':'https://www.linkedin.com/sharing/share-offsite/?url=' + url,
-        'livejournal':'http://www.livejournal.com/update.bml?subject=' + text + '&event=' + url,
-        'hacker.news':'https://news.ycombinator.com/submitlink?u=' + url + '&t=' + title,
-        'ok.ru':'https://connect.ok.ru/dk?st.cmd=WidgetSharePreview&st.shareUrl=' + url,
-        'pinterest':'http://pinterest.com/pin/create/button/?url=' + url ,
-        'qzone':'http://sns.qzone.qq.com/cgi-bin/qzshare/cgi_qzshare_onekey?url=' + url,
-        'reddit':'https://reddit.com/submit?url=' + url + '&title=' + title,
-        'renren':'http://widget.renren.com/dialog/share?resourceUrl=' + url + '&srcUrl=' + url + '&title=' + text + '&description=' + desc,
-        'skype':'https://web.skype.com/share?url=' + url + '&text=' + text,
-        'sms':'sms:' + phone_number + '?body=' + text,
-        'surfingbird.ru':'http://surfingbird.ru/share?url=' + url + '&description=' + desc + '&screenshot=' + image + '&title=' + title,
-        'telegram.me':'https://t.me/share/url?url=' + url + '&text=' + text + '&to=' + phone_number,
-        'threema':'threema://compose?text=' + text + '&id=' + user_id,
-        'tumblr':'https://www.tumblr.com/widgets/share/tool?canonicalUrl=' + url + '&title=' + title + '&caption=' + desc + '&tags=' + hash_tags,
-        'twitter':'https://twitter.com/intent/tweet?url=' + url + '&text=' + text + '&via=' + via + '&hashtags=' + hash_tags,
-        'vk':'http://vk.com/share.php?url=' + url + '&title=' + title + '&comment=' + desc,
-        'weibo':'http://service.weibo.com/share/share.php?url=' + url + '&appkey=&title=' + title + '&pic=&ralateUid=',
-        'whatsapp':'https://api.whatsapp.com/send?text=' + text + '%20' + url,
-        'xing':'https://www.xing.com/spi/shares/new?url=' + url,
-        'yahoo':'http://compose.mail.yahoo.com/?to=' + email_address + '&subject=' + title + '&body=' + text,
-    };
-}
-
-/**
- * Encodes a URI component with enhanced safety by replacing characters 
- * that are not typically encoded by the standard encodeURIComponent.
- *
- * @param {string} str - The string to be URI encoded.
- * @returns {string} - Returns the URI encoded string.
- *
- * @example
- * const str = "Hello, world!";
- * const encodedStr = fixedEncodeURIComponent(str);
- * console.log(encodedStr);  // Expected output: "Hello%2C%20world%21"
- */
-function fixedEncodeURIComponent(str) {
-    return encodeURIComponent(str).replace(/[!'()*]/g, function(c) {
-        return '%' + c.charCodeAt(0).toString(16);
-    });
 }
 
 /**
@@ -3143,21 +2517,21 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
             const new_icon = (options.is_dir ? window.icons['folder.svg'] : (await window.item_icon(fsentry)).image);
             $(el_item_icon).find('.item-icon-icon').attr('src', new_icon);
 
-            // Set new data-name
+            // Set new `data-name`
             options.name = new_name;
             $(el_item).attr('data-name', html_encode(new_name));
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', html_encode(new_name));
             $(`.window-${options.uid}`).attr('data-name', html_encode(new_name));
 
-            // Set new title attribute
+            // Set new `title` attribute
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', html_encode(new_name));
             $(`.window-${options.uid}`).attr('title', html_encode(new_name));
 
-            // Set new value for item-name-editor
+            // Set new value for `item-name-editor`
             $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(html_encode(new_name));
             $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', html_encode(new_name));
 
-            // Set new data-path
+            // Set new `data-path` attribute
             options.path = path.join( path.dirname(options.path), options.name);
             const new_path = options.path;
             $(el_item).attr('data-path', new_path);
@@ -3171,7 +2545,7 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
                     $(this).text(new_name);
             });
 
-            // Update the paths of all elements whose paths start with old_path
+            // Update the paths of all elements whose paths start with `old_path`
             $(`[data-path^="${html_encode(old_path) + '/'}"]`).each(function(){
                 const new_el_path = _.replace($(this).attr('data-path'), old_path + '/', new_path+'/');
                 $(this).attr('data-path', new_el_path);
@@ -3181,7 +2555,7 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
             if($(el_item).attr('data-has_website') === '1')
                 await window.update_sites_cache();
 
-            // Update website_url
+            // Update `website_url`
             website_url = window.determine_website_url(new_path);
             $(el_item).attr('data-website_url', website_url);
 
@@ -3304,7 +2678,7 @@ window.get_html_element_from_options = async function(options){
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
     options.metadata = options.metadata ?? '';
-    options.multiselectable = options.multiselectable ?? true;
+    options.multiselectable = (!options.multiselectable || options.multiselectable === true) ? true : false;
     options.shortcut_to = options.shortcut_to ?? '';
     options.shortcut_to_path = options.shortcut_to_path ?? '';
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
@@ -3538,52 +2912,17 @@ window.report_app_closed = (instance_id, status_code) => {
     // TODO: Once other AppConnections exist, those will need notifying too.
 };
 
-window.check_password_strength = (password) => {
-    // Define criteria for password strength
-    const criteria = {
-        minLength: 8,
-        hasUpperCase: /[A-Z]/.test(password),
-        hasLowerCase: /[a-z]/.test(password),
-        hasNumber: /\d/.test(password),
-        hasSpecialChar: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)
-    };
-
-    let overallPass = true;
-
-    // Initialize report object
-    let criteria_report = {
-        minLength: {
-            message: `Password must be at least ${criteria.minLength} characters long`,
-            pass: password.length >= criteria.minLength,
-        },
-        hasUpperCase: {
-            message: 'Password must contain at least one uppercase letter',
-            pass: criteria.hasUpperCase,
-        },
-        hasLowerCase: {
-            message: 'Password must contain at least one lowercase letter',
-            pass: criteria.hasLowerCase,
-        },
-        hasNumber: {
-            message: 'Password must contain at least one number',
-            pass: criteria.hasNumber,
-        },
-        hasSpecialChar: {
-            message: 'Password must contain at least one special character',
-            pass: criteria.hasSpecialChar,
-        },
-    };
-
-    // Check overall pass status and add messages
-    for (let criterion in criteria) {
-        if (!criteria_report[criterion].pass) {
-            overallPass = false;
+window.set_menu_item_prop = (items, item_id, prop, val) => {
+    // iterate over items
+    for (const item of items) {
+        // find the item with the given item_id
+        if (item.id === item_id) {
+            // set the property value
+            item[prop] = val;
             break;
         }
+        else if(item.items){
+            set_menu_item_prop(item.items, item_id, prop, val);
+        }
     }
-
-    return {
-        overallPass: overallPass,
-        report: criteria_report,
-    };
-}
+};

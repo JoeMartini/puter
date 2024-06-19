@@ -32,8 +32,28 @@ class PuterHomepageService extends BaseService {
         this.service_scripts.push(url);
     }
 
-    async send (res, meta) {
+    async send ({ req, res }, meta, launch_options) {
         const config = this.global_config;
+        
+        if (
+            req.query['puter.app_instance_id'] ||
+            req.query['error_from_within_iframe']
+        ) {
+            const easteregg = [
+                'puter in puter?',
+                'Infinite recursion!',
+                'what\'chu cookin\'?',
+            ];
+            const message = req.query.message ||
+                easteregg[
+                    Math.floor(Math.random(easteregg.length))
+                ];
+
+            return res.send(this.generate_error_html({
+                message,
+            }));
+        }
+        
         return res.send(this.generate_puter_page_html({
             env: config.env,
 
@@ -47,11 +67,16 @@ class PuterHomepageService extends BaseService {
             // page meta
             meta,
 
+            // launch options
+            launch_options,
+
             // gui parameters
             gui_params: {
                 app_name_regex: config.app_name_regex,
                 app_name_max_length: config.app_name_max_length,
                 app_title_max_length: config.app_title_max_length,
+                hosting_domain: config.static_hosting_domain +
+                    (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
                 subdomain_regex: config.subdomain_regex,
                 subdomain_max_length: config.subdomain_max_length,
                 domain: config.domain,
@@ -80,6 +105,7 @@ class PuterHomepageService extends BaseService {
         api_origin,
 
         meta,
+        launch_options,
 
         gui_params,
     }) {
@@ -101,6 +127,7 @@ class PuterHomepageService extends BaseService {
         gui_params = {
             ...meta,
             ...gui_params,
+            launch_options,
             app_origin,
             api_origin,
             gui_origin: app_origin,
@@ -266,6 +293,38 @@ class PuterHomepageService extends BaseService {
 
     </html>`;
     };
+    
+    generate_error_html ({ message }) {
+        return `
+            <!DOCTYPE html>
+            <html>
+                <head>
+                    <style type="text/css">
+                        @font-face {
+                            font-family: 'Inter';
+                            src: url('/fonts/Inter-Thin.ttf') format('truetype');
+                            font-weight: 100;
+                        }
+                        BODY {
+                            box-sizing: border-box;
+                            margin: 0;
+                            height: 100vh;
+                            width: 100vw;
+                            background-color: #2f70ab;
+                            color: #f2f7f7;
+                            font-family: "Inter", "Helvetica Neue", HelveticaNeue, Helvetica, Arial, sans-serif;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <h1>${message}</h1>
+                </body>
+            </html>
+        `;
+    }
 }
 
 module.exports = {

@@ -35,6 +35,9 @@ export default [
             globals: {
                 ...globals.node,
                 "kv": true,
+                "def": true,
+                "use": true,
+                "ll":true,
             }
         }
     },
@@ -73,6 +76,15 @@ export default [
                 "io": true,             // socket.io
                 "timeago": true,        // timeago
                 "SelectionArea": true,  // viselect
+                // Puter GUI Globals
+                "set_menu_item_prop": true,
+                "determine_active_container_parent": true,
+                "privacy_aware_path": true,
+                "api_origin": true,
+                "auth_token": true,
+                "logout": true,
+                "is_email": true,
+                "select_ctxmenu_item": true,
             }
         }
     },

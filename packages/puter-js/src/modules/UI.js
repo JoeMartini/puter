@@ -466,7 +466,10 @@ class UI extends EventListener {
             let URLParams = new URLSearchParams(window.location.search);
             if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
                 let fpath = URLParams.get('puter.item.path');
-                fpath = `~/` + fpath.split('/').slice(2).join('/');
+
+                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
+                    fpath = '~/' + fpath
+
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),
                     path: fpath,
@@ -495,7 +498,10 @@ class UI extends EventListener {
             let URLParams = new URLSearchParams(window.location.search);
             if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
                 let fpath = URLParams.get('puter.item.path');
-                fpath = `~/` + fpath.split('/').slice(2).join('/');
+
+                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
+                    fpath = '~/' + fpath;
+
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),
                     path: fpath,
@@ -678,6 +684,26 @@ class UI extends EventListener {
         this.#postMessageWithObject('setMenubar', spec);
     }
 
+    disableMenuItem = function(item_id) {
+        this.#postMessageWithObject('disableMenuItem', {id: item_id});
+    }
+
+    enableMenuItem = function(item_id) {
+        this.#postMessageWithObject('enableMenuItem', {id: item_id});
+    }
+
+    setMenuItemIcon = function(item_id, icon) {
+        this.#postMessageWithObject('setMenuItemIcon', {id: item_id, icon: icon});
+    }
+
+    setMenuItemIconActive = function(item_id, icon) {
+        this.#postMessageWithObject('setMenuItemIconActive', {id: item_id, icon: icon});
+    }
+
+    setMenuItemChecked = function(item_id, checked) {
+        this.#postMessageWithObject('setMenuItemChecked', {id: item_id, checked: checked});
+    }
+
     contextMenu = function(spec) {
         this.#postMessageWithObject('contextMenu', spec);
     }
@@ -703,7 +729,7 @@ class UI extends EventListener {
             if (this.getEntriesFromDataTransferItems.didShowInfo) return
             if (err.name !== 'EncodingError') return
             this.getEntriesFromDataTransferItems.didShowInfo = true
-            const infoMsg = `${err.name} occured within datatransfer-files-promise module\n`
+            const infoMsg = `${err.name} occurred within datatransfer-files-promise module\n`
                 + `Error message: "${err.message}"\n`
                 + 'Try serving html over http if currently you are running it from the filesystem.'
             console.warn(infoMsg)

@@ -1507,8 +1507,7 @@ span.header-sort-icon img {
     padding: 3px 0;
     min-width: 200px;
     background-color: rgba(231, 238, 245, .98);
-    border: 1px solid #e4ebf3de;
-    border: 1px solid #CCC;
+    border: 1px solid #e6e4e466;
     box-shadow: 0px 0px 15px #00000066;
     padding-left: 6px;
     padding-right: 6px;
@@ -1575,11 +1574,16 @@ span.header-sort-icon img {
     display: none;
     pointer-events: none;
 }
-
+.context-menu .has-open-context-menu-submenu,
+.context-menu .context-menu-item-active {
+    border-radius: 4px;
+}
+.context-menu .has-open-context-menu-submenu{
+    background-color: #dfdfdf;
+}
 .context-menu .context-menu-item-active {
     background-color: var(--select-color);
     color: white;
-    border-radius: 4px;
 }
 
 .context-menu .context-menu-item-active-blurred {
@@ -2074,7 +2078,6 @@ label {
 }
 
 .share-recipients {
-    margin-top: 10px;
     max-height: 200px;
     overflow: scroll;
 }
@@ -2432,19 +2435,25 @@ label {
 /*****************************************************
  * Notification
  *****************************************************/
+.notification, .notification-wrapper{
+    width: 320px;
+    border-radius: 11px;
+}
 .notification {
-    width: 250px;
-    height: 54px;
-    position: absolute;
-    right: 10px;
+    min-height: 54px;
     background: #ffffffcd;
     backdrop-filter: blur(5px);
-    border-radius: 11px;
-    z-index: 9999999;
+    z-index: 99999999;
     box-shadow: 0px 0px 17px -9px #000;
     border: 1px solid #d5d5d5;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: row;
+    pointer-events: all;
 }
-
+.notification-wrapper{
+    overflow: visible;
+}
 .notification-close {
     position: absolute;
     background: white;
@@ -2461,7 +2470,67 @@ label {
 .notification:hover .notification-close {
     display: block;
 }
+.notification-icon{
+    width: 40px;
+    margin: 10px 5px 10px 15px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
+}
+.notification-icon img{
+    width: 35px;
+    height: 35px;
+}
+.notification-title{
+    font-size: 12px;
+    font-weight: 600;
+}
+.notification-text{
+    font-size: 12px; 
+    margin-top: 4px;
+}
+.notification-content{
+    flex-grow:1;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+}
+.notification-container{
+    position: absolute;
+    top: 40px;
+    right: 10px;
+    z-index: 1000;
+    padding-top: 30px;
+    pointer-events: none;
+}
 
+.notifications-close-all{
+    opacity: 0;
+    position: absolute;
+    top: 0px;
+    right: 0px;
+    background-color: #d5d9dc;
+    padding: 3px 7px;
+    border-radius: 3px;
+    border: 1px solid #d5d5d5;
+    font-size: 12px;
+    transition: 0.15s;
+    pointer-events: none;
+    cursor: pointer;
+    filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
+}
+.notifications-close-all:hover{
+    background-color: #dee1e3;
+}
+.notification-container.has-multiple{
+    pointer-events: all;
+}
+.notification-container.has-multiple:hover .notifications-close-all{
+    pointer-events: all;
+    opacity: 1 !important;
+}
 /*****************************************************
  * Start
  *****************************************************/
@@ -2815,6 +2884,14 @@ fieldset[name=number-code] {
 
 @supports ((backdrop-filter: blur())) {
     .window-head {
+        background-color: hsla(var(--window-head-hue),
+                var(--window-head-saturation),
+                var(--window-head-lightness),
+                var(--window-head-alpha));
+        backdrop-filter: blur(10px);
+    }
+
+    .notification {
         background-color: hsla(var(--window-head-hue),
                 var(--window-head-saturation),
                 var(--window-head-lightness),

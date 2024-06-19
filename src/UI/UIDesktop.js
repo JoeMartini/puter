@@ -37,6 +37,8 @@ import changeLanguage from "../i18n/i18nChangeLanguage.js"
 import UIWindowSettings from "./Settings/UIWindowSettings.js"
 import UIWindowTaskManager from "./UIWindowTaskManager.js"
 import truncate_filename from '../helpers/truncate_filename.js';
+import UINotification from "./UINotification.js"
+import launch_app from "../helpers/launch_app.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -109,6 +111,67 @@ async function UIDesktop(options){
         if(msg.is_empty)
             $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
     })
+    
+    window.socket.on('notif.message', ({ uid, notification }) => {
+        const icon = window.icons[notification.icon];
+        UINotification({
+            title: notification.title,
+            text: notification.text,
+            icon: icon,
+            value: notification,
+            close: async () => {
+                await fetch(`${window.api_origin}/notif/mark-ack`, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${puter.authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ uid }),
+                });
+            },
+            click: async (notif) => {
+                if(notification.template === "file-shared-with-you"){
+                    let item_path = '/' + notification.fields.username;
+                    UIWindow({
+                        path: '/' + notification.fields.username,
+                        title: path.basename(item_path),
+                        icon: await window.item_icon({is_dir: true, path: item_path}),
+                        is_dir: true,
+                        app: 'explorer',
+                    });
+                }
+            },
+        });
+    });
+
+    window.__already_got_unreads = false;
+    window.socket.on('notif.unreads', ({ unreads }) => {
+        if ( window.__already_got_unreads ) return;
+        window.__already_got_unreads = true;
+
+        for ( const notif_info of unreads ) {
+            const notification = notif_info.notification;
+            const icon = window.icons[notification.icon];
+            
+            UINotification({
+                icon,
+                title: notification.title,
+                text: notification.text ?? notification.title,
+                close: async () => {
+                    await fetch(`${window.api_origin}/notif/mark-ack`, {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${puter.authToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            uid: notif_info.uid,
+                        }),
+                    });
+                },
+            });
+        }
+    });
 
     window.socket.on('app.opened', async (app) => {
         // don't update if this is the original client that initiated the action
@@ -490,14 +553,11 @@ async function UIDesktop(options){
     h += `</div>`;
 
     // Get window sidebar width
-    window.getItem({
-        key: "window_sidebar_width",
-        success: async function(res){
-            let value = parseInt(res.value);
-            // if value is a valid number
-            if(!isNaN(value) && value > 0){
-                window.window_sidebar_width = value;
-            }
+    puter.kv.get('window_sidebar_width').then(async (val) => {
+        let value = parseInt(val);
+        // if value is a valid number
+        if(!isNaN(value) && value > 0){
+            window.window_sidebar_width = value;
         }
     })
 
@@ -928,6 +988,9 @@ async function UIDesktop(options){
     // prepend toolbar to desktop
     $(ht).insertBefore(el_desktop);
 
+    // notification container
+    $('body').append(`<div class="notification-container"><div class="notifications-close-all">Close all</div></div>`);
+
     // adjust window container to take into account the toolbar height
     $('.window-container').css('top', window.toolbar_height);
 
@@ -960,8 +1023,9 @@ async function UIDesktop(options){
     else if(window.app_launched_from_url){
         let qparams = new URLSearchParams(window.location.search);      
         if(!qparams.has('c')){
-            window.launch_app({
-                name: window.app_launched_from_url,
+            launch_app({
+                app: window.app_launched_from_url.name,
+                app_obj: window.app_launched_from_url,
                 readURL: qparams.get('readURL'),
                 maximized: qparams.get('maximized'),
                 params: window.app_query_params ?? [],
@@ -1018,21 +1082,40 @@ async function UIDesktop(options){
 
     // show referral notice window
     if(window.show_referral_notice && !window.user.email_confirmed){
-        window.getItem({
-            key: "shown_referral_notice",
-            success: async function(res){
-                if(!res){
-                    setTimeout(() => {
-                        UIWindowClaimReferral();
-                    }, 1000);
-                    window.setItem({
-                        key: "shown_referral_notice",
-                        value: true,
-                    })
-                }
+        puter.kv.get('shown_referral_notice').then(async (val) => {
+            if(!val || val === 'false' || val === false){
+                setTimeout(() => {
+                    UIWindowClaimReferral();
+                }, 1000);
+                puter.kv.set({
+                    key: "shown_referral_notice",
+                    value: true,
+                })
             }
         })
     }
+
+    // fetch notifications
+    fetch(puter.APIOrigin + "/drivers/call", {
+        "headers": {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${puter.authToken}`,
+        },
+        "body": JSON.stringify({
+            interface: 'puter-notifications',
+            method: 'select',
+            args: {}
+        }),
+        "method": "POST",
+    })
+    .then(response => response.json())
+    .then(data => {
+        if(data && data.result && data.result.length > 0){
+            data.data?.forEach(notification => {
+                UINotification(notification);
+            })
+        }
+    })
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function(event){
@@ -1251,7 +1334,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                 }
             },
         ]
-    });    
+    }); 
 })
 
 $(document).on('click', '.fullscreen-btn', async function (e) {
@@ -1302,7 +1385,7 @@ $(document).on('click', '.refer-btn', async function(e){
 })
 
 $(document).on('click', '.start-app', async function(e){
-    window.launch_app({
+    launch_app({
         name: $(this).attr('data-app-name')
     })
     // close popovers

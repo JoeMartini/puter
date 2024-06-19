@@ -52,6 +52,13 @@ const surrounding_box = (col, lines) => {
     }
 }
 
+// Annoying polyfill for inconsistency in different node versions
+if ( ! import.meta.filename ) {
+    Object.defineProperty(import.meta, 'filename', {
+        get: () => import.meta.url.slice('file://'.length),
+    })
+}
+
 const main = async () => {
     const {
         Kernel,
@@ -61,8 +68,9 @@ const main = async () => {
         SelfHostedModule
     } = (await import('@heyputer/backend')).default;
 
-    console.log('kerne', Kernel);
-    const k = new Kernel();
+    const k = new Kernel({
+        entry_path: import.meta.filename
+    });
     k.add_module(new CoreModule());
     k.add_module(new DatabaseModule());
     k.add_module(new LocalDiskStorageModule());

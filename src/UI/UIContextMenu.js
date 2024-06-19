@@ -17,11 +17,339 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+
+/**
+ * menu-aim is a jQuery plugin for dropdown menus that can differentiate
+ * between a user trying hover over a dropdown item vs trying to navigate into
+ * a submenu's contents.
+ *
+ * menu-aim assumes that you have are using a menu with submenus that expand
+ * to the menu's right. It will fire events when the user's mouse enters a new
+ * dropdown item *and* when that item is being intentionally hovered over.
+ *
+ * __________________________
+ * | Monkeys  >|   Gorilla  |
+ * | Gorillas >|   Content  |
+ * | Chimps   >|   Here     |
+ * |___________|____________|
+ *
+ * In the above example, "Gorillas" is selected and its submenu content is
+ * being shown on the right. Imagine that the user's cursor is hovering over
+ * "Gorillas." When they move their mouse into the "Gorilla Content" area, they
+ * may briefly hover over "Chimps." This shouldn't close the "Gorilla Content"
+ * area.
+ *
+ * This problem is normally solved using timeouts and delays. menu-aim tries to
+ * solve this by detecting the direction of the user's mouse movement. This can
+ * make for quicker transitions when navigating up and down the menu. The
+ * experience is hopefully similar to amazon.com/'s "Shop by Department"
+ * dropdown.
+ *
+ * Use like so:
+ *
+ *      $("#menu").menuAim({
+ *          activate: $.noop,  // fired on row activation
+ *          deactivate: $.noop  // fired on row deactivation
+ *      });
+ *
+ *  ...to receive events when a menu's row has been purposefully (de)activated.
+ *
+ * The following options can be passed to menuAim. All functions execute with
+ * the relevant row's HTML element as the execution context ('this'):
+ *
+ *      .menuAim({
+ *          // Function to call when a row is purposefully activated. Use this
+ *          // to show a submenu's content for the activated row.
+ *          activate: function() {},
+ *
+ *          // Function to call when a row is deactivated.
+ *          deactivate: function() {},
+ *
+ *          // Function to call when mouse enters a menu row. Entering a row
+ *          // does not mean the row has been activated, as the user may be
+ *          // mousing over to a submenu.
+ *          enter: function() {},
+ *
+ *          // Function to call when mouse exits a menu row.
+ *          exit: function() {},
+ *
+ *          // Selector for identifying which elements in the menu are rows
+ *          // that can trigger the above events. Defaults to "> li".
+ *          rowSelector: "> li",
+ *
+ *          // You may have some menu rows that aren't submenus and therefore
+ *          // shouldn't ever need to "activate." If so, filter submenu rows w/
+ *          // this selector. Defaults to "*" (all elements).
+ *          submenuSelector: "*",
+ *
+ *          // Direction the submenu opens relative to the main menu. Can be
+ *          // left, right, above, or below. Defaults to "right".
+ *          submenuDirection: "right"
+ *      });
+ *
+ * https://github.com/kamens/jQuery-menu-aim
+*/
+(function ($) {
+
+    $.fn.menuAim = function (opts) {
+        // Initialize menu-aim for all elements in jQuery collection
+        this.each(function () {
+            init.call(this, opts);
+        });
+
+        return this;
+    };
+
+    function init(opts) {
+        var $menu = $(this),
+            activeRow = null,
+            mouseLocs = [],
+            lastDelayLoc = null,
+            timeoutId = null,
+            options = $.extend({
+                rowSelector: "> li",
+                submenuSelector: "*",
+                submenuDirection: $.noop,
+                tolerance: 75,  // bigger = more forgivey when entering submenu
+                enter: $.noop,
+                exit: $.noop,
+                activate: $.noop,
+                deactivate: $.noop,
+                exitMenu: $.noop
+            }, opts);
+
+        var MOUSE_LOCS_TRACKED = 3,  // number of past mouse locations to track
+            DELAY = 300;  // ms delay when user appears to be entering submenu
+
+        /**
+         * Keep track of the last few locations of the mouse.
+         */
+        var mousemoveDocument = function (e) {
+            mouseLocs.push({ x: e.pageX, y: e.pageY });
+
+            if (mouseLocs.length > MOUSE_LOCS_TRACKED) {
+                mouseLocs.shift();
+            }
+        };
+
+        /**
+         * Cancel possible row activations when leaving the menu entirely
+         */
+        var mouseleaveMenu = function () {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+
+            // If exitMenu is supplied and returns true, deactivate the
+            // currently active row on menu exit.
+            if (options.exitMenu(this)) {
+                if (activeRow) {
+                    options.deactivate(activeRow);
+                }
+
+                activeRow = null;
+            }
+        };
+
+        /**
+         * Trigger a possible row activation whenever entering a new row.
+         */
+        var mouseenterRow = function () {
+            if (timeoutId) {
+                // Cancel any previous activation delays
+                clearTimeout(timeoutId);
+            }
+
+            options.enter(this);
+            possiblyActivate(this);
+        },
+            mouseleaveRow = function () {
+                options.exit(this);
+            };
+
+        /*
+         * Immediately activate a row if the user clicks on it.
+         */
+        var clickRow = function () {
+            activate(this);
+        };
+
+        /**
+         * Activate a menu row.
+         */
+        var activate = function (row) {
+            if (row == activeRow) {
+                return;
+            }
+
+            if (activeRow) {
+                options.deactivate(activeRow);
+            }
+
+
+            options.activate(row);
+            activeRow = row;
+        };
+
+        /**
+         * Possibly activate a menu row. If mouse movement indicates that we
+         * shouldn't activate yet because user may be trying to enter
+         * a submenu's content, then delay and check again later.
+         */
+        var possiblyActivate = function (row) {
+            var delay = activationDelay();
+
+            if (delay) {
+                timeoutId = setTimeout(function () {
+                    possiblyActivate(row);
+                }, delay);
+            } else {
+                activate(row);
+            }
+        };
+
+        /**
+         * Return the amount of time that should be used as a delay before the
+         * currently hovered row is activated.
+         *
+         * Returns 0 if the activation should happen immediately. Otherwise,
+         * returns the number of milliseconds that should be delayed before
+         * checking again to see if the row should be activated.
+         */
+        var activationDelay = function () {
+            if (!activeRow || !$(activeRow).is(options.submenuSelector)) {
+                // If there is no other submenu row already active, then
+                // go ahead and activate immediately.
+                return 0;
+            }
+
+            var offset = $menu.offset(),
+                upperLeft = {
+                    x: offset.left,
+                    y: offset.top - options.tolerance
+                },
+                upperRight = {
+                    x: offset.left + $menu.outerWidth(),
+                    y: upperLeft.y
+                },
+                lowerLeft = {
+                    x: offset.left,
+                    y: offset.top + $menu.outerHeight() + options.tolerance
+                },
+                lowerRight = {
+                    x: offset.left + $menu.outerWidth(),
+                    y: lowerLeft.y
+                },
+                loc = mouseLocs[mouseLocs.length - 1],
+                prevLoc = mouseLocs[0];
+
+            if (!loc) {
+                return 0;
+            }
+
+            if (!prevLoc) {
+                prevLoc = loc;
+            }
+
+            if (prevLoc.x < offset.left || prevLoc.x > lowerRight.x ||
+                prevLoc.y < offset.top || prevLoc.y > lowerRight.y) {
+                // If the previous mouse location was outside of the entire
+                // menu's bounds, immediately activate.
+                return 0;
+            }
+
+            if (lastDelayLoc &&
+                loc.x == lastDelayLoc.x && loc.y == lastDelayLoc.y) {
+                // If the mouse hasn't moved since the last time we checked
+                // for activation status, immediately activate.
+                return 0;
+            }
+
+            // Detect if the user is moving towards the currently activated
+            // submenu.
+            //
+            // If the mouse is heading relatively clearly towards
+            // the submenu's content, we should wait and give the user more
+            // time before activating a new row. If the mouse is heading
+            // elsewhere, we can immediately activate a new row.
+            //
+            // We detect this by calculating the slope formed between the
+            // current mouse location and the upper/lower right points of
+            // the menu. We do the same for the previous mouse location.
+            // If the current mouse location's slopes are
+            // increasing/decreasing appropriately compared to the
+            // previous's, we know the user is moving toward the submenu.
+            //
+            // Note that since the y-axis increases as the cursor moves
+            // down the screen, we are looking for the slope between the
+            // cursor and the upper right corner to decrease over time, not
+            // increase (somewhat counterintuitively).
+            function slope(a, b) {
+                return (b.y - a.y) / (b.x - a.x);
+            };
+
+            var decreasingCorner = upperRight,
+                increasingCorner = lowerRight;
+
+            // Our expectations for decreasing or increasing slope values
+            // depends on which direction the submenu opens relative to the
+            // main menu. By default, if the menu opens on the right, we
+            // expect the slope between the cursor and the upper right
+            // corner to decrease over time, as explained above. If the
+            // submenu opens in a different direction, we change our slope
+            // expectations.
+            if (options.submenuDirection() == "left") {
+                decreasingCorner = lowerLeft;
+                increasingCorner = upperLeft;
+            } else if (options.submenuDirection() == "below") {
+                decreasingCorner = lowerRight;
+                increasingCorner = lowerLeft;
+            } else if (options.submenuDirection() == "above") {
+                decreasingCorner = upperLeft;
+                increasingCorner = upperRight;
+            }
+
+            var decreasingSlope = slope(loc, decreasingCorner),
+                increasingSlope = slope(loc, increasingCorner),
+                prevDecreasingSlope = slope(prevLoc, decreasingCorner),
+                prevIncreasingSlope = slope(prevLoc, increasingCorner);
+
+            if (decreasingSlope < prevDecreasingSlope &&
+                increasingSlope > prevIncreasingSlope) {
+                // Mouse is moving from previous location towards the
+                // currently activated submenu. Delay before activating a
+                // new menu row, because user may be moving into submenu.
+                lastDelayLoc = loc;
+                return DELAY;
+            }
+
+            lastDelayLoc = null;
+            return 0;
+        };
+
+        $menu.on('mouseenter', function(e) {
+            if($menu.find('.context-menu-item-active').length === 0 && $menu.find('.has-open-context-menu-submenu').length === 0)
+                activeRow = null;
+        })
+        /**
+         * Hook up initial menu events
+         */
+        $menu
+            .mouseleave(mouseleaveMenu)
+            .find(options.rowSelector)
+            .mouseenter(mouseenterRow)
+            .mouseleave(mouseleaveRow)
+            .click(clickRow);
+
+        $(document).mousemove(mousemoveDocument);
+
+    };
+})(jQuery);
+
 function UIContextMenu(options){
     $('.window-active .window-app-iframe').css('pointer-events', 'none');
 
     const menu_id = window.global_element_id++;
-
     let h = '';
     h += `<div 
                 id="context-menu-${menu_id}" 
@@ -42,8 +370,13 @@ function UIContextMenu(options){
                             class="context-menu-item ${options.items[i].disabled ? ' context-menu-item-disabled' : ''}"
                             >`;
                         // icon
-                        h += `<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
-                        h += `<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
+                        if(options.items[i].checked === true){
+                            h += `<span class="context-menu-item-icon">✓</span>`;
+                            h += `<span class="context-menu-item-icon-active">✓</span>`;
+                        }else{
+                            h += `<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
+                            h += `<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
+                        }
                         // label
                         h += `<span class="contextmenu-label">${options.items[i].html}</span>`;
                         h += `<span class="contextmenu-label-active">${options.items[i].html_active ?? options.items[i].html}</span>`;
@@ -137,7 +470,7 @@ function UIContextMenu(options){
     if ( options?.delay === false) {
         $(contextMenu).show(0);
     } else if(options?.delay === true || options?.delay === 1 || options?.delay === undefined) {
-        $(contextMenu).fadeIn(80).show(0);
+        $(contextMenu).fadeIn(50).show(0);
     } else {
         $(contextMenu).fadeIn(options?.delay).show(0);
     }
@@ -180,8 +513,9 @@ function UIContextMenu(options){
     // just passing over the item, the submenu doesn't open immediately.
     let submenu_delay_timer;
 
-    // Initialize the menuAim plugin (../libs/jquery.menu-aim.js)
+    // Initialize the menuAim plugin
     $(contextMenu).menuAim({
+        rowSelector: ".context-menu-item",
         submenuSelector: ".context-menu-item-submenu",
         submenuDirection: function(){
             // If not submenu
@@ -194,13 +528,17 @@ function UIContextMenu(options){
                 }
             }
         },
+        enter: function (e) {
+            // activate items
+            // this.activate(e);
+        },
         // activates item when mouse enters depending on mouse position and direction
         activate: function (e) {
-            //activate items
+            // activate items
             let item = $(e).closest('.context-menu-item');
-            // mark other items as inactive
+            // mark other menu items as inactive
             $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
-            // mark this item as active
+            // mark this menu item as active
             $(item).addClass('context-menu-item-active');
             // close any submenu that doesn't belong to this item
             $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
@@ -216,6 +554,8 @@ function UIContextMenu(options){
                     if($(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).length === 0){
                         // close other submenus
                         $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
+                        // add `has-open-context-menu-submenu` class to the parent menu item
+                        $(e).addClass('has-open-context-menu-submenu');
 
                         // Calculate the position for the submenu
                         let submenu_x_pos, submenu_y_pos;
@@ -240,20 +580,30 @@ function UIContextMenu(options){
                         })
                     }
                 }
-            }, 200);
+            }, 300);
         },
-        //deactivates row when mouse leaves
+        // deactivates row when mouse leaves
         deactivate: function (e) {
             // disable submenu delay timer
             clearTimeout(submenu_delay_timer);
-            //deactivate submenu
+            // deactivate submenu
             if($(e).hasClass('context-menu-item-submenu')){
                 $(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).remove();
+                // remove `has-open-context-menu-submenu` class from the parent menu item
+                $(e).removeClass('has-open-context-menu-submenu');
             }
+
         }
     });
     
-    // Useful in cases such as where a menu item is over a window, this prevents from the mousedown event
+    // disabled item mousedown event
+    $(`#context-menu-${menu_id} > li.context-menu-item-disabled`).on('mousedown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    })
+
+    // Useful in cases such as where a menu item is over a window, this prevents the mousedown event from
     // reaching the window underneath
     $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('mousedown', function (e) {
         e.preventDefault();
@@ -275,7 +625,11 @@ function UIContextMenu(options){
         if(options.parent_element){
             $(options.parent_element).parent().removeClass('children-have-open-contextmenu');
 
-            $(options.parent_element).css('overflow', 'scroll');
+            // if the parent element is not a window, make it scrollable again
+            if (!$(options.parent_element).hasClass('window-body')) {
+                $(options.parent_element).css('overflow', 'scroll');
+            }
+            
             $(options.parent_element).removeClass('has-open-contextmenu');
             if($(options.parent_element).hasClass('taskbar-item')){
                 window.make_taskbar_sortable()
@@ -286,6 +640,14 @@ function UIContextMenu(options){
         e.preventDefault();
         e.stopPropagation();
         return false;
+    })
+
+    $(contextMenu).on("mouseleave", function (e) {
+        $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
+        clearTimeout(submenu_delay_timer);
+    })
+
+    $(contextMenu).on("mouseenter", function (e) {
     })
 
     return {
@@ -306,10 +668,33 @@ function UIContextMenu(options){
 window.select_ctxmenu_item = function ($ctxmenu_item){
     // remove active class from other items
     $($ctxmenu_item).siblings('.context-menu-item').removeClass('context-menu-item-active');
+    // remove `has-open-context-menu-submenu` class from other items
+    $($ctxmenu_item).siblings('.context-menu-item').removeClass('has-open-context-menu-submenu');
     // add active class to the selected item
     $($ctxmenu_item).addClass('context-menu-item-active');
 }
 
+$(document).on('mouseleave', '.context-menu', function(){
+    // when mouse leaves the context menu, remove active class from all items
+    $(this).find('.context-menu-item').removeClass('context-menu-item-active');
+})
+
+$(document).on('mouseenter', '.context-menu', function(e){
+    // when mouse enters the context menu, convert all items with submenu to active
+    $(this).find('.has-open-context-menu-submenu').each(function(){
+        $(this).addClass('context-menu-item-active');
+    })
+})
+
+$(document).on('mouseenter', '.context-menu-item', function(e){
+    // select_ctxmenu_item(this);
+})
+
+$(document).on('mouseenter', '.context-menu-divider', function(e){
+    // unselect all items
+    $(this).siblings('.context-menu-item:not(.has-open-context-menu-submenu)').removeClass('context-menu-item-active');
+})
+
+$(document)
+
 export default UIContextMenu;
-
-

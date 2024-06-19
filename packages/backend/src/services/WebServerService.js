@@ -28,6 +28,7 @@ const fs = require('fs');
 const auth = require('../middleware/auth');
 const { osclink } = require('../util/strutil');
 const { surrounding_box, es_import_promise } = require('../fun/dev-console-ui-utils');
+const auth2 = require('../middleware/auth2.js');
 
 class WebServerService extends BaseService {
     static MODULES = {
@@ -168,6 +169,11 @@ class WebServerService extends BaseService {
                     socket.token = auth_res.token;
                     // join user room
                     socket.join(socket.user.id);
+                    
+                    // setTimeout 0 is needed because we need to send
+                    // the notifications after this handler is done
+                    // setTimeout(() => {
+                    // }, 1000);
                     next();
                 } catch (e) {
                     console.log('socket auth err', e);
@@ -180,8 +186,14 @@ class WebServerService extends BaseService {
             });
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
+                const svc_event = this.services.get('event');
+                svc_event.emit('web.socket.user-connected', {
+                    user: socket.user
+                });
             });
         });
+        
+        await this.services.emit('install.websockets', { server });
     }
 
     async _init () {
@@ -302,7 +314,11 @@ class WebServerService extends BaseService {
         // Validate host header against allowed domains to prevent host header injection
         // https://www.owasp.org/index.php/Host_Header_Injection
         app.use((req, res, next)=>{
-            const allowedDomains = [config.domain.toLowerCase(), config.static_hosting_domain.toLowerCase()];
+            const allowedDomains = [
+                config.domain.toLowerCase(),
+                config.static_hosting_domain.toLowerCase(),
+                'at.' + config.static_hosting_domain.toLowerCase(),
+            ];
 
             // Retrieve the Host header and ensure it's in a valid format
             const hostHeader = req.headers.host;

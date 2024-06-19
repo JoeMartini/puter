@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { URLSearchParams } = require("node:url");
 const { quot } = require("../util/strutil");
 
 /**
@@ -27,6 +28,13 @@ const { quot } = require("../util/strutil");
  */
 module.exports = class APIError {
     static codes = {
+        // General
+        'unknown_error': {
+            status: 500,
+            message: () => `An unknown error occurred`,
+        },
+        
+        // Unorganized
         'item_with_same_name_exists': {
             status: 409,
             message: ({ entry_name }) => entry_name
@@ -388,6 +396,33 @@ module.exports = class APIError {
             message: ({ identifier }) => `Entity not found: ${quot(identifier)}`,
         },
 
+        // Share
+        'user_does_not_exist': {
+            status: 422,
+            message: ({ username }) => `The user ${quot(username)} does not exist.`
+        },
+        'invalid_username_or_email': {
+            status: 400,
+            message: ({ value }) =>
+                `The value ${quot(value)} is not a valid username or email.`
+        },
+        'invalid_path': {
+            status: 400,
+            message: ({ value }) =>
+                `The value ${quot(value)} is not a valid path.`
+        },
+        'future': {
+            status: 400,
+            message: ({ what }) => `Not supported yet: ${what}`
+        },
+        // Temporary solution for lack of error composition
+        'field_errors': {
+            status: 400,
+            message: ({ key, errors }) =>
+                `The value for ${quot(key)} has the following errors: ` +
+                errors.join('; ')
+        },
+
         // Chat
         // TODO: specifying these errors here might be a violation
         // of separation of concerns. Services could register their
@@ -489,6 +524,24 @@ module.exports = class APIError {
             $: 'heyputer:api/APIError',
             message: this.message,
             status: this.status,
+        };
+    }
+    
+    querystringize (extra) {
+        return new URLSearchParams(this.querystringize_(extra));
+    }
+    
+    querystringize_ (extra) {
+        const fields = {};
+        for ( const k in this.fields ) {
+            fields[`field_${k}`] = this.fields[k];
+        }
+        return {
+            ...extra,
+            error: true,
+            message: this.message,
+            status: this.status,
+            ...fields,
         };
     }
 

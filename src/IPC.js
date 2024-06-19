@@ -29,6 +29,7 @@ import download from './helpers/download.js';
 import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
+import launch_app from './helpers/launch_app.js';
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -99,6 +100,13 @@ window.addEventListener('message', async (event) => {
 
         // Send any saved broadcasts to the new app
         globalThis.services.get('broadcast').sendSavedBroadcastsTo(event.data.appInstanceID);
+
+        // If `window-active` is set (meanign the window is focused), focus the window one more time
+        // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
+        if($el_parent_window.hasClass('window-active')){
+            $el_parent_window.focusWindow();
+        }
+
     }
     //-------------------------------------------------
     // windowFocused
@@ -177,89 +185,45 @@ window.addEventListener('message', async (event) => {
     // setItem
     //--------------------------------------------------------
     else if(event.data.msg === 'setItem' && event.data.key && event.data.value){
-        // todo: validate key and value to avoid unnecessary api calls
-        return await $.ajax({
-            url: window.api_origin + "/setItem",
-            type: 'POST',
-            data: JSON.stringify({ 
-                app: app_uuid,
-                key: event.data.key,
-                value: event.data.value,
-            }),
-            async: true,
-            contentType: "application/json",
-            headers: {
-                "Authorization": "Bearer "+window.auth_token
-            },
-            statusCode: {
-                401: function () {
-                    window.logout();
-                },
-            },        
-            success: function (fsentry){
-            }  
+        puter.kv.set({
+            key: event.data.key,
+            value: event.data.value,
+            app_uid: app_uuid,
+        }).then(() => {
+            // send confirmation to requester window
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+            }, '*');
         })
     }
     //--------------------------------------------------------
     // getItem
     //--------------------------------------------------------
     else if(event.data.msg === 'getItem' && event.data.key){
-        // todo: validate key to avoid unnecessary api calls
-        $.ajax({
-            url: window.api_origin + "/getItem",
-            type: 'POST',
-            data: JSON.stringify({ 
-                key: event.data.key,
-                app: app_uuid,
-            }),
-            async: true,
-            contentType: "application/json",
-            headers: {
-                "Authorization": "Bearer "+window.auth_token
-            },
-            statusCode: {
-                401: function () {
-                    window.logout();
-                },
-            },        
-            success: function (result){
-                // send confirmation to requester window
-                target_iframe.contentWindow.postMessage({
-                    original_msg_id: msg_id,
-                    msg: 'getItemSucceeded',
-                    value: result ? result.value : null,
-                }, '*');
-            }  
+        puter.kv.get({
+            key: event.data.key,
+            app_uid: app_uuid,
+        }).then((result) => {
+            // send confirmation to requester window
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+                msg: 'getItemSucceeded',
+                value: result ?? null,
+            }, '*');
         })
     }
     //--------------------------------------------------------
     // removeItem
     //--------------------------------------------------------
     else if(event.data.msg === 'removeItem' && event.data.key){
-        // todo: validate key to avoid unnecessary api calls
-        $.ajax({
-            url: window.api_origin + "/removeItem",
-            type: 'POST',
-            data: JSON.stringify({ 
-                key: event.data.key,
-                app: app_uuid,
-            }),
-            async: true,
-            contentType: "application/json",
-            headers: {
-                "Authorization": "Bearer "+window.auth_token
-            },
-            statusCode: {
-                401: function () {
-                    window.logout();
-                },
-            },        
-            success: function (result){
-                // send confirmation to requester window
-                target_iframe.contentWindow.postMessage({
-                    original_msg_id: msg_id,
-                }, '*');
-            }  
+        puter.kv.del({
+            key: event.data.key,
+            app_uid: app_uuid,
+        }).then(() => {
+            // send confirmation to requester window
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+            }, '*');
         })
     }
     //--------------------------------------------------------
@@ -373,8 +337,21 @@ window.addEventListener('message', async (event) => {
         // get window position
         const window_position = $(el_window).position();
 
+        // does this window have a menubar?
+        const $menubar = $(el_window).find('.window-menubar');
+        if($menubar.length > 0){
+            y += $menubar.height();
+        }
+
+        // does this window have a head?
+        const $head = $(el_window).find('.window-head');
+        if($head.length > 0 && $head.css('display') !== 'none'){
+            console.log('head height', $head.height());
+            y += $head.height();
+        }
+
         // update mouse position
-        update_mouse_position(x + window_position.left, y + window_position.top + 25);
+        update_mouse_position(x + window_position.left, y + window_position.top);
     }
 
     //--------------------------------------------------------
@@ -393,10 +370,16 @@ window.addEventListener('message', async (event) => {
         // get parent window
         const el_window = window.window_for_app_instance(event.data.appInstanceID);
 
-
         let items = value.items ?? [];
         const sanitize_items = items => {
             return items.map(item => {
+                // make sure item.icon and item.icon_active are valid base64 strings
+                if (item.icon && !item.icon.startsWith('data:image')) {
+                    item.icon = undefined;
+                }
+                if (item.icon_active && !item.icon_active.startsWith('data:image')) {
+                    item.icon_active = undefined;
+                }
                 // Check if the item is just '-'
                 if (item === '-') {
                     return '-';
@@ -404,11 +387,15 @@ window.addEventListener('message', async (event) => {
                 // Otherwise, proceed as before
                 return {
                     html: item.label,
+                    icon: item.icon ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon)}" />` : undefined,
+                    icon_active: item.icon_active ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon_active)}" />` : undefined,
+                    disabled: item.disabled,
                     onClick: () => {
                         if (item.action !== undefined) {
-                            console.log('item.action', item.action);
                             item.action();
                         }
+                        // focus the window
+                        $(el_window).focusWindow();
                     },
                     items: item.items ? sanitize_items(item.items) : undefined
                 };
@@ -423,6 +410,36 @@ window.addEventListener('message', async (event) => {
         });
 
         $(target_iframe).get(0).focus({preventScroll:true});
+    }
+    // --------------------------------------------------------
+    // disableMenuItem
+    // --------------------------------------------------------
+    else if(event.data.msg === 'disableMenuItem'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'disabled', true);
+    }
+    // --------------------------------------------------------
+    // enableMenuItem
+    // --------------------------------------------------------
+    else if(event.data.msg === 'enableMenuItem'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'disabled', false);
+    }
+    //--------------------------------------------------------
+    // setMenuItemIcon
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setMenuItemIcon'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'icon', event.data.value.icon);
+    }
+    //--------------------------------------------------------
+    // setMenuItemIconActive
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setMenuItemIconActive'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'icon_active', event.data.value.icon_active);
+    }
+    //--------------------------------------------------------
+    // setMenuItemChecked
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setMenuItemChecked'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'checked', event.data.value.checked);
     }
     //--------------------------------------------------------
     // setMenubar
@@ -444,6 +461,12 @@ window.addEventListener('message', async (event) => {
             e.preventDefault();
         });
 
+        // empty menubar
+        $menubar.empty();
+
+        if(!window.menubars[event.data.appInstanceID])
+            window.menubars[event.data.appInstanceID] = value.items;
+
         const sanitize_items = items => {
             return items.map(item => {
                 // Check if the item is just '-'
@@ -453,6 +476,10 @@ window.addEventListener('message', async (event) => {
                 // Otherwise, proceed as before
                 return {
                     html: item.label,
+                    disabled: item.disabled,
+                    checked: item.checked,
+                    icon: item.icon ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon)}" />` : undefined,
+                    icon_active: item.icon_active ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon_active)}" />` : undefined,
                     action: item.action,
                     items: item.items ? sanitize_items(item.items) : undefined
                 };
@@ -469,11 +496,15 @@ window.addEventListener('message', async (event) => {
         const open_menu = ({ i, pos, parent_element, items }) => {
             let delay = true;
             if ( state_open ) {
+                // if already open, keep it open
                 if ( current_i === i ) return;
 
                 delay = false;
                 current && current.cancel({ meta: 'menubar', fade: false });
             }
+
+            // Close all other context menus
+            $('.context-menu').remove();
 
             // Set this menubar button as active
             menubar_buttons.forEach(el => el.removeClass('active'));
@@ -481,8 +512,8 @@ window.addEventListener('message', async (event) => {
 
             // Open the context menu
             const ctxMenu = UIContextMenu({
-                delay,
-                parent_element,
+                delay: delay,
+                parent_element: parent_element,
                 position: {top: pos.top + 30, left: pos.left},
                 css: {
                     'box-shadow': '0px 2px 6px #00000059'
@@ -509,9 +540,13 @@ window.addEventListener('message', async (event) => {
                 const item = items[i];
                 const label = html_encode(item.label);
                 const el_item = $(`<div class="window-menubar-item"><span>${label}</span></div>`);
-                const parent_element = el_item.parent()[0];
+                const parent_element = el_item.get(0);
                 
                 el_item.on('mousedown', (e) => {
+                    // check if it has has-open-context-menu class
+                    if ( el_item.hasClass('has-open-contextmenu') ) {
+                        return;
+                    }
                     if ( state_open ) {
                         state_open = false;
                         current && current.cancel({ meta: 'menubar' });
@@ -526,6 +561,7 @@ window.addEventListener('message', async (event) => {
                             parent_element,
                             items: item.items,
                         });
+                        $(el_window).focusWindow(e);
                         e.stopPropagation();
                         e.preventDefault();
                         return;
@@ -555,7 +591,7 @@ window.addEventListener('message', async (event) => {
                 menubar_buttons.push(el_item);
             }
         };
-        add_items($menubar, value.items);
+        add_items($menubar, window.menubars[event.data.appInstanceID]);
     }
     //--------------------------------------------------------
     // setWindowWidth
@@ -670,7 +706,7 @@ window.addEventListener('message', async (event) => {
             launch_msg_id: msg_id,
         };
         // launch child app
-        window.launch_app({
+        launch_app({
             name: event.data.app_name ?? app_name,
             args: event.data.args ?? {},
             parent_instance_id: event.data.appInstanceID,
@@ -695,7 +731,7 @@ window.addEventListener('message', async (event) => {
                 signature = signature.items;
                 signature.signatures = signature.signatures ?? [signature];
                 if(signature.signatures.length > 0 && signature.signatures[0].path){
-                    signature.signatures[0].path = `~/` + signature.signatures[0].path.split('/').slice(2).join('/')
+                    signature.signatures[0].path = privacy_aware_path(signature.signatures[0].path)
                     // send confirmation to requester window
                     target_iframe.contentWindow.postMessage({
                         msg: "readAppDataFileSucceeded",
@@ -1012,7 +1048,7 @@ window.addEventListener('message', async (event) => {
                                     metadataURL: file_signature.metadata_url,
                                     type: file_signature.type,
                                     uid: file_signature.uid,
-                                    path: `~/` + res.path.split('/').slice(2).join('/'),
+                                    path: privacy_aware_path(res.path)
                                 },
                             }, '*');
 
@@ -1195,7 +1231,7 @@ window.addEventListener('message', async (event) => {
                             writeURL: file_signature.write_url,
                             metadataURL: file_signature.metadata_url,
                             uid: file_signature.uid,
-                            path: `~/` + res.path.split('/').slice(2).join('/'),
+                            path: privacy_aware_path(res.path),
                         },
                     }, '*');
                     $(target_iframe).get(0).focus({preventScroll:true});
