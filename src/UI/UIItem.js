@@ -28,6 +28,7 @@ import UIAlert from './UIAlert.js'
 import path from "../lib/path.js"
 import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from "../helpers/launch_app.js"
+import open_item from "../helpers/open_item.js"
 
 function UIItem(options){
     const matching_appendto_count = $(options.appendTo).length;
@@ -525,7 +526,7 @@ function UIItem(options){
             if($(e.target).hasClass('item-name-editor'))
                 return false;
     
-            window.open_item({
+            open_item({
                 item: el_item, 
                 maximized: true,
             });
@@ -540,7 +541,7 @@ function UIItem(options){
             if($(e.target).hasClass('item-name-editor'))
                 return false;
     
-            window.open_item({
+            open_item({
                 item: el_item, 
                 new_window: e.metaKey || e.ctrlKey,
             });
@@ -559,6 +560,7 @@ function UIItem(options){
         if($(e.target).hasClass('item-has-website-url-badge'))
             return false;
 
+        // get the parent window
         const $el_parent_window = $(el_item).closest('.window');
 
         // first see if this is a ContextMenu call on multiple items
@@ -752,10 +754,6 @@ function UIItem(options){
         if(event.target === el_item_name_editor)
             return;
 
-        // if ctrl is pressed don't open ctxmenu, ctrl is for drag and copy
-        if(event.ctrlKey)
-            return false;
-
         event.preventDefault();
         let menu_items;
         const $selected_items = $(el_item).closest('.item-container').find('.item-selected').not(el_item).addBack();
@@ -804,7 +802,7 @@ function UIItem(options){
                         let items = [];
                         $selected_items.each(function() {
                             const ell = this;
-                            items.push({uid: $(ell).attr('data-uid'), path: $(ell).attr('data-path')});
+                            items.push({uid: $(ell).attr('data-uid'), path: $(ell).attr('data-path'), icon: $(ell).find('.item-icon img').attr('src'), name: $(ell).attr('data-name')});
                         })
                         UIWindowShare(items);
                     }
@@ -973,7 +971,7 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('open'),
                     onClick: function(){
-                        window.open_item({item: el_item});
+                        open_item({item: el_item});
                     }
                 });
 
@@ -1075,7 +1073,7 @@ function UIItem(options){
                     html: i18n('open_in_new_window'),
                     onClick: function(){
                         if(options.is_dir){
-                            window.open_item({item: el_item, new_window: true})
+                            open_item({item: el_item, new_window: true})
                         }
                     }
                 });

@@ -30,6 +30,7 @@ import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import launch_app from './helpers/launch_app.js';
+import item_icon from './helpers/item_icon.js';
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -167,7 +168,7 @@ window.addEventListener('message', async (event) => {
     else if(event.data.msg === 'createWindow'){
         // todo: validate as many of these as possible
         if(event.data.options){
-            UIWindow({
+            const win = await UIWindow({
                 title: event.data.options.title,
                 disable_parent_window: event.data.options.disable_parent_window,
                 width: event.data.options.width,
@@ -179,6 +180,17 @@ window.addEventListener('message', async (event) => {
                 iframe_srcdoc: event.data.options.content,
                 parent_uuid: event.data.appInstanceID,
             })
+
+            // create safe window object
+            const safe_win = {
+                id: $(win).attr('data-element_uuid'),
+            }
+
+            // send confirmation to requester window
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+                window: safe_win,
+            }, '*');
         }
     }
     //--------------------------------------------------------
@@ -311,7 +323,18 @@ window.addEventListener('message', async (event) => {
     // setWindowTitle
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined){
-        const el_window = window.window_for_app_instance(event.data.appInstanceID);
+        let el_window;
+        // specific window
+        if( event.data.window_id )
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        // app window
+        else
+            el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // window not found
+        if(!el_window || el_window.length === 0)
+            return;
+
         // set window title
         $(el_window).find(`.window-head-title`).html(html_encode(event.data.new_title));
         // send confirmation to requester window
@@ -346,7 +369,6 @@ window.addEventListener('message', async (event) => {
         // does this window have a head?
         const $head = $(el_window).find('.window-head');
         if($head.length > 0 && $head.css('display') !== 'none'){
-            console.log('head height', $head.height());
             y += $head.height();
         }
 
@@ -597,12 +619,24 @@ window.addEventListener('message', async (event) => {
     // setWindowWidth
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowWidth' && event.data.width !== undefined){
+        let el_window;
+        // specific window
+        if( event.data.window_id )
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        // app window
+        else
+            el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // window not found
+        if(!el_window || el_window.length === 0)
+            return;
+
         event.data.width = parseFloat(event.data.width);
         // must be at least 200
         if(event.data.width < 200)
             event.data.width = 200;
         // set window width
-        $($el_parent_window).css('width', event.data.width);
+        $(el_window).css('width', event.data.width);
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id, 
@@ -612,13 +646,25 @@ window.addEventListener('message', async (event) => {
     // setWindowHeight
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowHeight' && event.data.height !== undefined){
+        let el_window;
+        // specific window
+        if( event.data.window_id )
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        // app window
+        else
+            el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // window not found
+        if(!el_window || el_window.length === 0)
+            return;
+
         event.data.height = parseFloat(event.data.height);
         // must be at least 200
         if(event.data.height < 200)
             event.data.height = 200;
 
         // convert to number and set
-        $($el_parent_window).css('height', event.data.height);
+        $(el_window).css('height', event.data.height);
 
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
@@ -629,13 +675,25 @@ window.addEventListener('message', async (event) => {
     // setWindowSize
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowSize' && (event.data.width !== undefined || event.data.height !== undefined)){
+        let el_window;
+        // specific window
+        if( event.data.window_id )
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        // app window
+        else
+            el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // window not found
+        if(!el_window || el_window.length === 0)
+            return;
+
         // convert to number and set
         if(event.data.width !== undefined){
             event.data.width = parseFloat(event.data.width);
             // must be at least 200
             if(event.data.width < 200)
                 event.data.width = 200;
-            $($el_parent_window).css('width', event.data.width);
+            $(el_window).css('width', event.data.width);
         }
         
         if(event.data.height !== undefined){
@@ -643,7 +701,7 @@ window.addEventListener('message', async (event) => {
             // must be at least 200
             if(event.data.height < 200)
                 event.data.height = 200;
-            $($el_parent_window).css('height', event.data.height);
+            $(el_window).css('height', event.data.height);
         }
 
         // send confirmation to requester window
@@ -655,6 +713,18 @@ window.addEventListener('message', async (event) => {
     // setWindowPosition
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowPosition' && (event.data.x !== undefined || event.data.y !== undefined)){
+        let el_window;
+        // specific window
+        if( event.data.window_id )
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        // app window
+        else
+            el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // window not found
+        if(!el_window || el_window.length === 0)
+            return;
+
         // convert to number and set
         if(event.data.x !== undefined){
             event.data.x = parseFloat(event.data.x);
@@ -665,7 +735,7 @@ window.addEventListener('message', async (event) => {
             if(event.data.x > window.innerWidth - 100)
                 event.data.x = window.innerWidth - 100;
             // set window left
-            $($el_parent_window).css('left', parseFloat(event.data.x));
+            $(el_window).css('left', parseFloat(event.data.x));
         }
 
         if(event.data.y !== undefined){
@@ -677,7 +747,7 @@ window.addEventListener('message', async (event) => {
             if(event.data.y > window.innerHeight - 100)
                 event.data.y = window.innerHeight - 100;
             // set window top
-            $($el_parent_window).css('top', parseFloat(event.data.y));
+            $(el_window).css('top', parseFloat(event.data.y));
         }
 
         // send confirmation to requester window
@@ -685,6 +755,74 @@ window.addEventListener('message', async (event) => {
             original_msg_id: msg_id, 
         }, '*');
     }
+    //--------------------------------------------------------
+    // setWindowX
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setWindowX' && (event.data.x !== undefined)){
+        let el_window;
+        // specific window
+        if( event.data.window_id )
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        // app window
+        else
+            el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // window not found
+        if(!el_window || el_window.length === 0)
+            return;
+
+        // convert to number and set
+        if(event.data.x !== undefined){
+            event.data.x = parseFloat(event.data.x);
+            // we don't want the window to go off the left edge of the screen
+            if(event.data.x < 0)
+                event.data.x = 0;
+            // we don't want the window to go off the right edge of the screen
+            if(event.data.x > window.innerWidth - 100)
+                event.data.x = window.innerWidth - 100;
+            // set window left
+            $(el_window).css('left', parseFloat(event.data.x));
+        }
+
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id, 
+        }, '*');
+    }
+    //--------------------------------------------------------
+    // setWindowY
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setWindowY' && (event.data.y !== undefined)){
+        let el_window;
+        // specific window
+        if( event.data.window_id )
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        // app window
+        else
+            el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // window not found
+        if(!el_window || el_window.length === 0)
+            return;
+
+        // convert to number and set
+        if(event.data.y !== undefined){
+            event.data.y = parseFloat(event.data.y);
+            // we don't want the window to go off the top edge of the screen
+            if(event.data.y < window.taskbar_height)
+                event.data.y = window.taskbar_height;
+            // we don't want the window to go off the bottom edge of the screen
+            if(event.data.y > window.innerHeight - 100)
+                event.data.y = window.innerHeight - 100;
+            // set window top
+            $(el_window).css('top', parseFloat(event.data.y));
+        }
+
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id, 
+        }, '*');
+    }    
     //--------------------------------------------------------
     // watchItem
     //--------------------------------------------------------
@@ -1063,7 +1201,7 @@ window.addEventListener('message', async (event) => {
                                 immutable: res.immutable,
                                 associated_app_name: res.associated_app?.name,
                                 path: target_path,
-                                icon: await window.item_icon(res),
+                                icon: await item_icon(res),
                                 name: path.basename(target_path),
                                 uid: res.uid,
                                 size: res.size,

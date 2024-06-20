@@ -40,11 +40,10 @@ import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { LocaleService } from './services/LocaleService.js';
 import { SettingsService } from './services/SettingsService.js';
-
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import { LaunchOnInitService } from './services/LaunchOnInitService.js';
-
+import item_icon from './helpers/item_icon.js';
 
 const launch_services = async function (options) {
     // === Services Data Structures ===
@@ -204,7 +203,7 @@ window.initgui = async function(options){
             UIWindow({
                 path: item_path,
                 title: path.basename(item_path),
-                icon: await window.item_icon({is_dir: true, path: item_path}),
+                icon: await item_icon({is_dir: true, path: item_path}),
                 is_dir: true,
                 app: 'explorer',
             });
@@ -1434,7 +1433,6 @@ $(document).on('contextmenu', '.disable-context-menu', function(e){
         return false;
     }
 })
-
 
 /**
  * Converts a file system path to a privacy-aware path.

@@ -18,19 +18,17 @@
  */
 
 import path from "./lib/path.js"
-import mime from "./lib/mime.js";
 import UIAlert from './UI/UIAlert.js'
 import UIItem from './UI/UIItem.js'
-import UIWindow from './UI/UIWindow.js'
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
-import content_type_to_icon from './helpers/content_type_to_icon.js';
 import truncate_filename from './helpers/truncate_filename.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
-import launch_app from "./helpers/launch_app.js";
 import globToRegExp from "./helpers/globToRegExp.js";
+import get_html_element_from_options from "./helpers/get_html_element_from_options.js";
+import item_icon from "./helpers/item_icon.js";
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || window.auth_token === null)
@@ -626,187 +624,6 @@ window.sendItemChangeEventToWatchingApps = function(item_uid, event_data){
 }
 
 /**
- * Assigns an icon to a filesystem entry based on its properties such as name, type, 
- * and whether it's a directory, app, trashed, or specific file type.
- * 
- * @function item_icon
- * @global
- * @async
- * @param {Object} fsentry - A filesystem entry object. It may contain various properties 
- * like name, type, path, associated_app, thumbnail, is_dir, and metadata, depending on 
- * the type of filesystem entry.
- */
-
-window.item_icon = async (fsentry)=>{
-    // --------------------------------------------------
-    // If this file is Trashed then set the name to the original name of the file before it was trashed
-    // --------------------------------------------------
-    if(fsentry.path?.startsWith(window.trash_path + '/')){
-        if(fsentry.metadata){
-            try{
-                let metadata = JSON.parse(fsentry.metadata);
-                fsentry.name = (metadata && metadata.original_name) ? metadata.original_name : fsentry.name
-            }
-            catch(e){
-                // Ignored
-            }
-        }
-    }
-    // --------------------------------------------------
-    // thumbnail
-    // --------------------------------------------------
-    if(fsentry.thumbnail){
-        return {image: fsentry.thumbnail, type: 'thumb'};
-    }
-    // --------------------------------------------------
-    // app icon
-    // --------------------------------------------------
-    else if(fsentry.associated_app && fsentry.associated_app?.name){
-        if(fsentry.associated_app.icon)
-            return {image: fsentry.associated_app.icon, type: 'icon'};
-        else
-            return {image: window.icons['app.svg'], type: 'icon'};
-    }
-    // --------------------------------------------------
-    // Trash
-    // --------------------------------------------------
-    else if(fsentry.shortcut_to_path && fsentry.shortcut_to_path === window.trash_path){
-        // get trash image, this is needed to get the correct empty vs full trash icon
-        let trash_img = $(`.item[data-path="${html_encode(window.trash_path)}" i] .item-icon-icon`).attr('src')
-        // if trash_img is undefined that's probably because trash wasn't added anywhere, do a direct lookup to see if trash is empty or no
-        if(!trash_img){
-            let trashstat = await puter.fs.stat(window.trash_path);
-            if(trashstat.is_empty !== undefined && trashstat.is_empty === true)
-                trash_img = window.icons['trash.svg'];
-            else
-                trash_img = window.icons['trash-full.svg'];
-        }
-        return {image: trash_img, type: 'icon'};
-    }
-    // --------------------------------------------------
-    // Directories
-    // --------------------------------------------------
-    else if(fsentry.is_dir){
-        // System Directories
-        if(fsentry.path === window.docs_path)
-            return {image: window.icons['folder-documents.svg'], type: 'icon'};
-        else if (fsentry.path === window.pictures_path)
-            return { image: window.icons['folder-pictures.svg'], type: 'icon' };
-        else if (fsentry.path === window.home_path)
-            return { image: window.icons['folder-home.svg'], type: 'icon' };
-        else if (fsentry.path === window.videos_path)
-            return { image: window.icons['folder-videos.svg'], type: 'icon' };
-        else if (fsentry.path === window.desktop_path)
-            return { image: window.icons['folder-desktop.svg'], type: 'icon' };
-        else if (fsentry.path === window.public_path)
-            return { image: window.icons['folder-public.svg'], type: 'icon' };
-        // regular directories
-        else
-            return {image: window.icons['folder.svg'], type: 'icon'};
-    }
-    // --------------------------------------------------
-    // Match icon by file extension
-    // --------------------------------------------------
-    // *.doc
-    else if(fsentry.name.toLowerCase().endsWith('.doc')){
-        return {image: window.icons['file-doc.svg'], type: 'icon'};
-    }
-    // *.docx
-    else if(fsentry.name.toLowerCase().endsWith('.docx')){
-        return {image: window.icons['file-docx.svg'], type: 'icon'};
-    }
-    // *.exe
-    else if(fsentry.name.toLowerCase().endsWith('.exe')){
-        return {image: window.icons['file-exe.svg'], type: 'icon'};
-    }
-    // *.gz
-    else if(fsentry.name.toLowerCase().endsWith('.gz')){
-        return {image: window.icons['file-gzip.svg'], type: 'icon'};
-    }
-    // *.jar
-    else if(fsentry.name.toLowerCase().endsWith('.jar')){
-        return {image: window.icons['file-jar.svg'], type: 'icon'};
-    }
-    // *.java
-    else if(fsentry.name.toLowerCase().endsWith('.java')){
-        return {image: window.icons['file-java.svg'], type: 'icon'};
-    }
-    // *.jsp
-    else if(fsentry.name.toLowerCase().endsWith('.jsp')){
-        return {image: window.icons['file-jsp.svg'], type: 'icon'};
-    }
-    // *.log
-    else if(fsentry.name.toLowerCase().endsWith('.log')){
-        return {image: window.icons['file-log.svg'], type: 'icon'};
-    }
-    // *.mp3
-    else if(fsentry.name.toLowerCase().endsWith('.mp3')){
-        return {image: window.icons['file-mp3.svg'], type: 'icon'};
-    }
-    // *.rb
-    else if(fsentry.name.toLowerCase().endsWith('.rb')){
-        return {image: window.icons['file-ruby.svg'], type: 'icon'};
-    }
-    // *.rss
-    else if(fsentry.name.toLowerCase().endsWith('.rss')){
-        return {image: window.icons['file-rss.svg'], type: 'icon'};
-    }
-    // *.rtf
-    else if(fsentry.name.toLowerCase().endsWith('.rtf')){
-        return {image: window.icons['file-rtf.svg'], type: 'icon'};
-    }
-    // *.sketch
-    else if(fsentry.name.toLowerCase().endsWith('.sketch')){
-        return {image: window.icons['file-sketch.svg'], type: 'icon'};
-    }
-    // *.sql
-    else if(fsentry.name.toLowerCase().endsWith('.sql')){
-        return {image: window.icons['file-sql.svg'], type: 'icon'};
-    }
-    // *.tif
-    else if(fsentry.name.toLowerCase().endsWith('.tif')){
-        return {image: window.icons['file-tif.svg'], type: 'icon'};
-    }
-    // *.tiff
-    else if(fsentry.name.toLowerCase().endsWith('.tiff')){
-        return {image: window.icons['file-tiff.svg'], type: 'icon'};
-    }
-    // *.wav
-    else if(fsentry.name.toLowerCase().endsWith('.wav')){
-        return {image: window.icons['file-wav.svg'], type: 'icon'};
-    }
-    // *.cpp
-    else if(fsentry.name.toLowerCase().endsWith('.cpp')){
-        return {image: window.icons['file-cpp.svg'], type: 'icon'};
-    }
-    // *.pptx
-    else if(fsentry.name.toLowerCase().endsWith('.pptx')){
-        return {image: window.icons['file-pptx.svg'], type: 'icon'};
-    }
-    // *.psd
-    else if(fsentry.name.toLowerCase().endsWith('.psd')){
-        return {image: window.icons['file-psd.svg'], type: 'icon'};
-    }
-    // *.py
-    else if(fsentry.name.toLowerCase().endsWith('.py')){
-        return {image: window.icons['file-py.svg'], type: 'icon'};
-    }
-    // *.xlsx
-    else if(fsentry.name.toLowerCase().endsWith('.xlsx')){
-        return {image: window.icons['file-xlsx.svg'], type: 'icon'};
-    }
-    // --------------------------------------------------
-    // Determine icon by set or derived mime type
-    // --------------------------------------------------
-    else if(fsentry.type){
-        return {image: content_type_to_icon(fsentry.type), type: 'icon'};
-    }
-    else{
-        return {image: content_type_to_icon(mime.getType(fsentry.name)), type: 'icon'};
-    }
-}
-
-/**
  * Asynchronously checks if a save account notice should be shown to the user, and if needed, displays the notice.
  *
  * This function first retrieves a key value pair from the cloud key-value storage to determine if the notice has been shown before.
@@ -1372,240 +1189,6 @@ window.trigger_download = (paths)=>{
     });
 }
 
-window.open_item = async function(options){
-    let el_item = options.item;
-    const $el_parent_window = $(el_item).closest('.window');
-    const parent_win_id = $($el_parent_window).attr('data-id');
-    const is_dir = $(el_item).attr('data-is_dir') === '1' ? true : false;
-    const uid = $(el_item).attr('data-shortcut_to') === '' ? $(el_item).attr('data-uid') : $(el_item).attr('data-shortcut_to');
-    const item_path = $(el_item).attr('data-shortcut_to_path') === '' ? $(el_item).attr('data-path') : $(el_item).attr('data-shortcut_to_path');
-    const is_shortcut = $(el_item).attr('data-is_shortcut') === '1';
-    const shortcut_to_path = $(el_item).attr('data-shortcut_to_path');
-    const associated_app_name = $(el_item).attr('data-associated_app_name');
-    const file_uid = $(el_item).attr('data-uid');
-    
-    //----------------------------------------------------------------
-    // Is this a shortcut whose source is perma-deleted?
-    //----------------------------------------------------------------
-    if(is_shortcut && shortcut_to_path === ''){
-        UIAlert(`This shortcut can't be opened because its source has been deleted.`)
-    }
-    //----------------------------------------------------------------
-    // Is this a shortcut whose source is trashed?
-    //----------------------------------------------------------------
-    else if(is_shortcut && shortcut_to_path.startsWith(window.trash_path + '/')){
-        UIAlert(`This shortcut can't be opened because its source has been deleted.`)
-    }
-    //----------------------------------------------------------------
-    // Is this a trashed file?
-    //----------------------------------------------------------------
-    else if(item_path.startsWith(window.trash_path + '/')){
-        UIAlert(`This item can't be opened because it's in the trash. To use this item, first drag it out of the Trash.`)
-    }
-    //----------------------------------------------------------------
-    // Is this a file (no dir) on a SaveFileDialog?
-    //----------------------------------------------------------------
-    else if($el_parent_window.attr('data-is_saveFileDialog') === 'true' && !is_dir){
-        $el_parent_window.find('.savefiledialog-filename').val($(el_item).attr('data-name'));
-        $el_parent_window.find('.savefiledialog-save-btn').trigger('click');
-    }
-    //----------------------------------------------------------------
-    // Is this a file (no dir) on an OpenFileDialog?
-    //----------------------------------------------------------------
-    else if($el_parent_window.attr('data-is_openFileDialog') === 'true' && !is_dir){
-        $el_parent_window.find('.window-disable-mask, .busy-indicator').show();
-        let busy_init_ts = Date.now();
-        try{    
-            let filedialog_parent_uid = $el_parent_window.attr('data-parent_uuid');
-            let $filedialog_parent_app_window = $(`.window[data-element_uuid="${filedialog_parent_uid}"]`);
-            let parent_window_app_uid = $filedialog_parent_app_window.attr('data-app_uuid');
-            const initiating_app_uuid = $el_parent_window.attr('data-initiating_app_uuid');
-
-            let res = await puter.fs.sign(window.host_app_uid ?? parent_window_app_uid, {uid: uid, action: 'write'});
-            res = res.items;
-            // todo split is buggy because there might be a slash in the filename
-            res.path = privacy_aware_path(item_path);
-            const parent_uuid = $el_parent_window.attr('data-parent_uuid');
-            const return_to_parent_window = $el_parent_window.attr('data-return_to_parent_window') === 'true';
-            if(return_to_parent_window){
-                window.opener.postMessage({
-                    msg: "fileOpenPicked", 
-                    original_msg_id: $el_parent_window.attr('data-iframe_msg_uid'), 
-                    items: Array.isArray(res) ? [...res] : [res],
-                    // LEGACY SUPPORT, remove this in the future when Polotno uses the new SDK
-                    // this is literally put in here to support Polotno's legacy code
-                    ...(!Array.isArray(res) && res)    
-                }, '*');
-
-                window.close();
-            }
-            else if(parent_uuid){
-                // send event to iframe
-                const target_iframe = $(`.window[data-element_uuid="${parent_uuid}"]`).find('.window-app-iframe').get(0);
-                if(target_iframe){
-                    let retobj = {
-                        msg: "fileOpenPicked", 
-                        original_msg_id: $el_parent_window.attr('data-iframe_msg_uid'), 
-                        items: Array.isArray(res) ? [...res] : [res],
-                        // LEGACY SUPPORT, remove this in the future when Polotno uses the new SDK
-                        // this is literally put in here to support Polotno's legacy code
-                        ...(!Array.isArray(res) && res)    
-                    };
-                    target_iframe.contentWindow.postMessage(retobj, '*');
-                }
-
-                // focus iframe
-                $(target_iframe).get(0)?.focus({preventScroll:true});
-              
-                // send file_opened event
-                const file_opened_event = new CustomEvent('file_opened', {detail: res});
-
-                // dispatch event to parent window
-                $(`.window[data-element_uuid="${parent_uuid}"]`).get(0)?.dispatchEvent(file_opened_event);
-            }
-        }catch(e){
-            console.log(e);
-        }
-        // done
-        let busy_duration = (Date.now() - busy_init_ts);
-        if( busy_duration >= window.busy_indicator_hide_delay){
-            $el_parent_window.close();   
-        }else{
-            setTimeout(() => {
-                // close this dialog
-                $el_parent_window.close();  
-            }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
-        }
-    }
-    //----------------------------------------------------------------
-    // Does the user have a preference for this file type?
-    //----------------------------------------------------------------
-    else if(!associated_app_name && !is_dir && window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
-        launch_app({
-            name: window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
-            file_path: item_path,
-            window_title: path.basename(item_path),
-            maximized: options.maximized,
-            file_uid: file_uid,
-        });
-    }
-    //----------------------------------------------------------------
-    // Is there an app associated with this item?
-    //----------------------------------------------------------------
-    else if(associated_app_name !== ''){
-        launch_app({
-            name: associated_app_name,
-        })
-    }
-    //----------------------------------------------------------------
-    // Dir with no open windows: create a new window
-    //----------------------------------------------------------------
-    else if(is_dir && ($el_parent_window.length === 0 || options.new_window)){
-        UIWindow({
-            path: item_path,
-            title: path.basename(item_path),
-            icon: await window.item_icon({is_dir: true, path: item_path}),
-            uid: $(el_item).attr('data-uid'),
-            is_dir: is_dir,
-            app: 'explorer',
-            top: options.maximized ? 0 : undefined,
-            left: options.maximized ? 0 : undefined,
-            height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
-            width: options.maximized ? `100%` : undefined,
-        });
-    }
-    //----------------------------------------------------------------
-    // Dir with an open window: change the path of the open window
-    //----------------------------------------------------------------
-    else if($el_parent_window.length > 0 && is_dir){
-        window.window_nav_history[parent_win_id] = window.window_nav_history[parent_win_id].slice(0, window.window_nav_history_current_position[parent_win_id]+1);
-        window.window_nav_history[parent_win_id].push(item_path);
-        window.window_nav_history_current_position[parent_win_id]++;
-
-        window.update_window_path($el_parent_window, item_path);
-    }
-    //----------------------------------------------------------------
-    // all other cases: try to open using an app
-    //----------------------------------------------------------------
-    else{
-        const fspath = item_path.toLowerCase();
-        const fsuid = uid.toLowerCase();
-        let open_item_meta;
-
-        // get all info needed to open an item
-        try{
-            open_item_meta = await $.ajax({
-                url: window.api_origin + "/open_item",
-                type: 'POST',
-                contentType: "application/json",
-                data: JSON.stringify({
-                    uid: fsuid ?? undefined,
-                    path: fspath ?? undefined,
-                }),
-                headers: {
-                    "Authorization": "Bearer "+window.auth_token
-                },
-                statusCode: {
-                    401: function () {
-                        window.logout();
-                    },
-                },
-            });
-        }catch(err){
-            // Ignored
-        }
-
-        // get a list of suggested apps for this file type.
-        let suggested_apps = open_item_meta?.suggested_apps ?? await window.suggest_apps_for_fsentry({uid: fsuid, path: fspath});
-        
-        //---------------------------------------------
-        // No suitable apps, ask if user would like to
-        // download
-        //---------------------------------------------
-        if(suggested_apps.length === 0){
-            //---------------------------------------------
-            // If .zip file, unzip it
-            //---------------------------------------------
-            if(path.extname(item_path) === '.zip'){
-                window.unzipItem(item_path);
-                return;
-            }
-            const alert_resp = await UIAlert(
-                    'Found no suitable apps to open this file with. Would you like to download it instead?',
-                    [
-                    {
-                        label: i18n('download_file'),
-                        value: 'download_file',
-                        type: 'primary',
-
-                    },
-                    {
-                        label: i18n('cancel')
-                    }
-                ])
-            if(alert_resp === 'download_file'){
-                window.trigger_download([item_path]);
-            }
-            return;
-        }
-        //---------------------------------------------
-        // First suggested app is default app to open this item
-        //---------------------------------------------
-        else{
-            launch_app({
-                name: suggested_apps[0].name, 
-                token: open_item_meta.token,
-                file_path: item_path,
-                app_obj: suggested_apps[0],
-                window_title: path.basename(item_path),
-                file_uid: fsuid,
-                maximized: options.maximized,
-                file_signature: open_item_meta.signature,
-            });
-        }
-    }    
-}
-
 /**
  * Moves the given items to the destination path. 
  * 
@@ -1840,7 +1423,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                     associated_app_name: fsentry.associated_app?.name,
                     uid: fsentry.uid,
                     path: fsentry.path,
-                    icon: await window.item_icon(fsentry),
+                    icon: await item_icon(fsentry),
                     name: (dest_path === window.trash_path) ? $(el_item).attr('data-name') : fsentry.name,
                     is_dir: fsentry.is_dir,
                     size: fsentry.size,
@@ -1869,7 +1452,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                             immutable: false,
                             uid: dir.uid,
                             path: dir.path,
-                            icon: await window.item_icon(dir),
+                            icon: await item_icon(dir),
                             name: dir.name,
                             size: dir.size,
                             type: dir.type,
@@ -2138,7 +1721,6 @@ window.upload_items = async function(items, dest_path){
             },
             // abort
             abort: async function(operation_id){
-                // console.log('upload aborted');
                 // remove from active_uploads
                 delete window.active_uploads[opid];
             }
@@ -2456,7 +2038,6 @@ window.unzipItem = async function(itemPath) {
     zip.loadAsync(file).then(async function (zip) {
         const rootdir = await puter.fs.mkdir(path.dirname(filPath) + '/' + path.basename(filPath, '.zip'), {dedupeName: true});
         Object.keys(zip.files).forEach(async function (filename) {
-            console.log(filename);
             if(filename.endsWith('/'))
                 await puter.fs.mkdir(rootdir.path +'/' + filename, {createMissingParents: true});
             zip.files[filename].async('blob').then(async function (fileData) {
@@ -2514,7 +2095,7 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
             $(el_item_name_editor).hide();
 
             // Set new icon
-            const new_icon = (options.is_dir ? window.icons['folder.svg'] : (await window.item_icon(fsentry)).image);
+            const new_icon = (options.is_dir ? window.icons['folder.svg'] : (await item_icon(fsentry)).image);
             $(el_item_icon).find('.item-icon-icon').attr('src', new_icon);
 
             // Set new `data-name`
@@ -2652,144 +2233,17 @@ window.undo_copy = async(files)=>{
 
 window.undo_move = async(items)=>{
     for (const item of items) {
-        const el = await window.get_html_element_from_options(item.options);
-        console.log(item.original_path)
+        const el = await get_html_element_from_options(item.options);
         window.move_items([el], path.dirname(item.original_path), true);
     }
 }
 
 window.undo_delete = async(items)=>{
     for (const item of items) {
-        const el = await window.get_html_element_from_options(item.options);
+        const el = await get_html_element_from_options(item.options);
         let metadata = $(el).attr('data-metadata') === '' ? {} : JSON.parse($(el).attr('data-metadata'))
         window.move_items([el], path.dirname(metadata.original_path), true);
     }
-}
-
-
-window.get_html_element_from_options = async function(options){
-    const item_id = window.global_element_id++;
-    
-    options.disabled = options.disabled ?? false;
-    options.visible = options.visible ?? 'visible'; // one of 'visible', 'revealed', 'hidden'
-    options.is_dir = options.is_dir ?? false;
-    options.is_selected = options.is_selected ?? false;
-    options.is_shared = options.is_shared ?? false;
-    options.is_shortcut = options.is_shortcut ?? 0;
-    options.is_trash = options.is_trash ?? false;
-    options.metadata = options.metadata ?? '';
-    options.multiselectable = (!options.multiselectable || options.multiselectable === true) ? true : false;
-    options.shortcut_to = options.shortcut_to ?? '';
-    options.shortcut_to_path = options.shortcut_to_path ?? '';
-    options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
-    options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
-    const is_shared_with_me = (options.path !== '/'+window.user.username && !options.path.startsWith('/'+window.user.username+'/'));
-
-    let website_url = window.determine_website_url(options.path);
-
-    // do a quick check to see if the target parent has any file type restrictions
-    const appendto_allowed_file_types = $(options.appendTo).attr('data-allowed_file_types')
-    if(!window.check_fsentry_against_allowed_file_types_string({is_dir: options.is_dir, name:options.name, type:options.type}, appendto_allowed_file_types))
-        options.disabled = true;
-
-    // --------------------------------------------------------
-    // HTML for Item
-    // --------------------------------------------------------
-    let h = '';
-    h += `<div  id="item-${item_id}" 
-                class="item${options.is_selected ? ' item-selected':''} ${options.disabled ? 'item-disabled':''} item-${options.visible}" 
-                data-id="${item_id}" 
-                data-name="${html_encode(options.name)}" 
-                data-metadata="${html_encode(options.metadata)}" 
-                data-uid="${options.uid}" 
-                data-is_dir="${options.is_dir ? 1 : 0}" 
-                data-is_trash="${options.is_trash ? 1 : 0}"
-                data-has_website="${options.has_website ? 1 : 0 }" 
-                data-website_url = "${website_url ? html_encode(website_url) : ''}"
-                data-immutable="${options.immutable}" 
-                data-is_shortcut = "${options.is_shortcut}"
-                data-shortcut_to = "${html_encode(options.shortcut_to)}"
-                data-shortcut_to_path = "${html_encode(options.shortcut_to_path)}"
-                data-sortable = "${options.sortable ?? 'true'}"
-                data-sort_by = "${html_encode(options.sort_by) ?? 'name'}"
-                data-size = "${options.size ?? ''}"
-                data-type = "${html_encode(options.type) ?? ''}"
-                data-modified = "${options.modified ?? ''}"
-                data-associated_app_name = "${html_encode(options.associated_app_name) ?? ''}"
-                data-path="${html_encode(options.path)}">`;
-
-        // spinner
-        h += `<div class="item-spinner">`;
-        h += `</div>`;
-        // modified
-        h += `<div class="item-attr item-attr--modified">`;
-            h += `<span>${options.modified === 0 ? '-' : timeago.format(options.modified*1000)}</span>`;
-        h += `</div>`;
-        // size
-        h += `<div class="item-attr item-attr--size">`;
-            h += `<span>${options.size ? window.byte_format(options.size) : '-'}</span>`;
-        h += `</div>`;
-        // type
-        h += `<div class="item-attr item-attr--type">`;
-            if(options.is_dir)
-                h += `<span>Folder</span>`;
-            else
-                h += `<span>${options.type ? html_encode(options.type) : '-'}</span>`;
-        h += `</div>`;
-
-
-        // icon
-        h += `<div class="item-icon">`;
-            h += `<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
-        h += `</div>`;
-        // badges
-        h += `<div class="item-badges">`;
-            // website badge
-            h += `<img  class="item-badge item-has-website-badge long-hover" 
-                        style="${options.has_website ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['world.svg'])}" 
-                        data-item-id="${item_id}"
-                    >`;
-            // link badge
-            h += `<img  class="item-badge item-has-website-url-badge" 
-                        style="${website_url ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['link.svg'])}" 
-                        data-item-id="${item_id}"
-                    >`;
-
-            // shared badge
-            h += `<img  class="item-badge item-badge-has-permission" 
-                        style="display: ${ is_shared_with_me ? 'block' : 'none'};
-                            background-color: #ffffff;
-                            padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
-                        data-item-id="${item_id}"
-                        title="A user has shared this item with you.">`;
-            // owner-shared badge
-            h += `<img  class="item-badge item-is-shared" 
-                        style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && options.is_shared ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['owner-shared.svg'])}" 
-                        data-item-id="${item_id}"
-                        data-item-uid="${options.uid}"
-                        data-item-path="${html_encode(options.path)}"
-                        title="You have shared this item with at least one other user."
-                    >`;
-            // shortcut badge
-            h += `<img  class="item-badge item-shortcut" 
-                        style="background-color: #ffffff; padding: 2px; ${options.is_shortcut !== 0 ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['shortcut.svg'])}" 
-                        data-item-id="${item_id}"
-                        title="Shortcut"
-                    >`;
-
-        h += `</div>`;
-
-        // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;')}</span>`
-        // name editor
-        h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
-    h += `</div>`;
-
-    return h;
 }
 
 window.store_auto_arrange_preference = (preference)=>{
